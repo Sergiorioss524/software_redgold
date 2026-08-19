@@ -42,14 +42,17 @@
     function formatNumber(n, decimals) {
       return n.toLocaleString('en-US', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
     }
-    // ids: {weight, purity, buyPrice, buyRate, outFineWeight, outFineOz, outTotalUsd, outTotalBs}
+    // ids: {weight, purity, buyPrice, buyRate, rateFisico, outFineWeight, outFineOz, outTotalUsd, outTotalBs}
     // buyPrice/buyRate/outTotalUsd/outTotalBs are optional -- omit them to
-    // only track peso fino / onza fina.
+    // only track peso fino / onza fina. rateFisico is optional: when given,
+    // "total en dólares" = total en Bolivianos / TC compra físico instead of
+    // onza fina x bolsa de compra.
     function bindPurchaseCalc(ids) {
       var weightEl = document.getElementById(ids.weight);
       var purityEl = document.getElementById(ids.purity);
       var buyPriceEl = ids.buyPrice ? document.getElementById(ids.buyPrice) : null;
       var buyRateEl = ids.buyRate ? document.getElementById(ids.buyRate) : null;
+      var rateFisicoEl = ids.rateFisico ? document.getElementById(ids.rateFisico) : null;
       var outFineWeightEl = document.getElementById(ids.outFineWeight);
       var outFineOzEl = ids.outFineOz ? document.getElementById(ids.outFineOz) : null;
       var outTotalUsdEl = ids.outTotalUsd ? document.getElementById(ids.outTotalUsd) : null;
@@ -70,8 +73,15 @@
         if (outTotalUsdEl || outTotalBsEl) {
           var buyPrice = buyPriceEl ? parseFloat(buyPriceEl.value) : NaN;
           var buyRate = buyRateEl ? parseFloat(buyRateEl.value) : NaN;
-          var totalUsd = (fineOz === null || isNaN(buyPrice)) ? null : fineOz * buyPrice;
-          var totalBs = (totalUsd === null || isNaN(buyRate)) ? null : totalUsd * buyRate;
+          var baseUsd = (fineOz === null || isNaN(buyPrice)) ? null : fineOz * buyPrice;
+          var totalBs = (baseUsd === null || isNaN(buyRate)) ? null : baseUsd * buyRate;
+
+          var totalUsd = baseUsd;
+          if (rateFisicoEl) {
+            var rateFisico = parseFloat(rateFisicoEl.value);
+            totalUsd = (totalBs === null || isNaN(rateFisico) || rateFisico === 0) ? null : totalBs / rateFisico;
+          }
+
           if (outTotalBsEl) {
             outTotalBsEl.textContent = 'Total de compra en Bolivianos: ' + (totalBs === null ? '—' : formatNumber(totalBs, 2) + ' Bs');
           }
@@ -81,7 +91,7 @@
         }
       }
 
-      [weightEl, purityEl, buyPriceEl, buyRateEl].forEach(function(el) {
+      [weightEl, purityEl, buyPriceEl, buyRateEl, rateFisicoEl].forEach(function(el) {
         if (el) el.addEventListener('input', update);
       });
       update();
