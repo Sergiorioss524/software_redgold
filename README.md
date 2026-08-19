@@ -65,6 +65,25 @@ python scripts/run_web.py
 From the dashboard you can fetch today's reference price, record purchases
 and sales for either cycle, and see inventory / profit per cycle.
 
+## Storage: SQLite locally, Postgres in production
+
+`redgold/db.py` defines one schema (SQLAlchemy Core) that works against
+either backend, selected by `DATABASE_URL`:
+
+- **Local dev / tests**: no `DATABASE_URL` set -> falls back to a SQLite
+  file at `REDGOLD_DB_PATH` (default `data/redgold.db`).
+- **Production (Vercel)**: deploying behind a serverless function means the
+  filesystem is read-only and ephemeral, so SQLite doesn't persist between
+  requests. Add a Postgres database to the Vercel project (Storage tab --
+  this repo was set up against Prisma Postgres via Vercel's marketplace
+  integration) and it auto-injects `DATABASE_URL` / `POSTGRES_URL`; no
+  further config needed. `app.py` at the repo root is the entrypoint
+  Vercel's Python builder auto-detects.
+
+If you ever point a local `.env`'s `DATABASE_URL` at the same production
+database (e.g. to debug something live), remember purchases/sales you
+create locally are real writes to production data.
+
 ## Fetching just the daily reference price (e.g. from cron)
 
 ```bash
@@ -90,13 +109,15 @@ can inspect BCB's live page yourself (or get an allowed User-Agent):
 ## Project layout
 
 ```
+app.py                     # root Flask entrypoint (Vercel auto-detects this)
 redgold/
-  config.py          # env-driven settings: URLs, selectors, DB path, ledger defaults
+  config.py          # env-driven settings: URLs, selectors, DATABASE_URL, ledger defaults
+  db.py                # SQLAlchemy Core schema + engine factory (SQLite or Postgres)
   sources/
     base.py           # shared fetch/parse/validate logic
     bcb.py             # Banco Central de Bolivia source
     netdania.py         # Netdania source
-  storage.py           # SQLite price history (reference price only)
+  storage.py           # price history (reference price only)
   adjustment.py         # day-over-day price change calculation
   ledger.py              # purchases, sales, inventory, cost basis, profit (the core model)
   pipeline.py             # orchestrates price fetch -> store -> adjust

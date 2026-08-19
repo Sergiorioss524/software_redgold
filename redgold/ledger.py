@@ -1,6 +1,7 @@
 """Gold buy/sell/reinvest ledger -- the business logic that used to live as
 formulas inside BALANCE_ULTIMO.xlsx, generalized from a single snapshot
-into a running SQLite ledger.
+into a running ledger (Postgres in production, SQLite in dev/tests -- see
+redgold/db.py).
 
 The workbook ran two parallel cycles:
 
@@ -19,45 +20,21 @@ original workbook (see tests/test_ledger.py).
 """
 from __future__ import annotations
 
-import sqlite3
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Optional, Union
+
+from sqlalchemy import select
 
 from redgold import config
+from redgold.db import make_engine
+from redgold.db import purchases as purchases_table
+from redgold.db import sales as sales_table
 
 CATEGORY_EXPORT = "EXPORT"
 CATEGORY_BCB = "BCB"
 CATEGORIES = (CATEGORY_EXPORT, CATEGORY_BCB)
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS purchases (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    purchase_date TEXT NOT NULL,
-    category TEXT NOT NULL CHECK (category IN ('EXPORT', 'BCB')),
-    weight_g REAL NOT NULL,
-    purity_pct REAL NOT NULL,
-    price_usd_per_oz REAL NOT NULL,
-    exchange_rate_bs_per_usd REAL NOT NULL,
-    notes TEXT,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS sales (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sale_date TEXT NOT NULL,
-    category TEXT NOT NULL CHECK (category IN ('EXPORT', 'BCB')),
-    fine_oz_sold REAL NOT NULL,
-    sale_price_usd_per_oz REAL NOT NULL,
-    royalty_pct REAL NOT NULL,
-    commission_pct REAL NOT NULL,
-    exchange_rate_bs_per_usd REAL NOT NULL,
-    notes TEXT,
-    created_at TEXT NOT NULL
-);
-"""
 
 
 # --------------------------------------------------------------------------
@@ -229,20 +206,10 @@ class InsufficientInventoryError(ValueError):
 
 
 class Ledger:
-    def __init__(self, db_path: Path | str = config.DB_PATH):
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
-            conn.executescript(_SCHEMA)
-
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path)
-        try:
-            yield conn
-            conn.commit()
-        finally:
-            conn.close()
+    def __init__(self, database_url: Optional[Union[str, Path]] = None):
+        if isinstance(database_url, Path):
+            database_url = f"sqlite:///{database_url}"
+        self.engine = make_engine(database_url or config.DATABASE_URL)
 
     # -- purchases ---------------------------------------------------------
 
@@ -258,43 +225,36 @@ class Ledger:
     ) -> Purchase:
         _validate_category(category)
         created_at = datetime.now(timezone.utc)
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT INTO purchases
-                    (purchase_date, category, weight_g, purity_pct, price_usd_per_oz,
-                     exchange_rate_bs_per_usd, notes, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    purchase_date.isoformat(), category, weight_g, purity_pct,
-                    price_usd_per_oz, exchange_rate_bs_per_usd, notes, created_at.isoformat(),
-                ),
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                purchases_table.insert().values(
+                    purchase_date=purchase_date.isoformat(),
+                    category=category,
+                    weight_g=weight_g,
+                    purity_pct=purity_pct,
+                    price_usd_per_oz=price_usd_per_oz,
+                    exchange_rate_bs_per_usd=exchange_rate_bs_per_usd,
+                    notes=notes,
+                    created_at=created_at.isoformat(),
+                )
             )
-            purchase_id = cur.lastrowid
+            purchase_id = result.inserted_primary_key[0]
         return self.get_purchase(purchase_id)
 
     def get_purchase(self, purchase_id: int) -> Optional[Purchase]:
-        with self._connect() as conn:
+        with self.engine.connect() as conn:
             row = conn.execute(
-                "SELECT id, purchase_date, category, weight_g, purity_pct, price_usd_per_oz, "
-                "exchange_rate_bs_per_usd, notes, created_at FROM purchases WHERE id = ?",
-                (purchase_id,),
-            ).fetchone()
+                select(purchases_table).where(purchases_table.c.id == purchase_id)
+            ).first()
         return _row_to_purchase(row) if row else None
 
     def list_purchases(self, category: Optional[str] = None) -> list[Purchase]:
-        query = (
-            "SELECT id, purchase_date, category, weight_g, purity_pct, price_usd_per_oz, "
-            "exchange_rate_bs_per_usd, notes, created_at FROM purchases "
-        )
-        params: tuple = ()
+        query = select(purchases_table)
         if category:
-            query += "WHERE category = ? "
-            params = (category,)
-        query += "ORDER BY purchase_date, id"
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
+            query = query.where(purchases_table.c.category == category)
+        query = query.order_by(purchases_table.c.purchase_date, purchases_table.c.id)
+        with self.engine.connect() as conn:
+            rows = conn.execute(query).fetchall()
         return [_row_to_purchase(row) for row in rows]
 
     # -- sales ---------------------------------------------------------
@@ -319,46 +279,37 @@ class Ledger:
                 f"{available:.4f} fine oz on hand"
             )
         created_at = datetime.now(timezone.utc)
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT INTO sales
-                    (sale_date, category, fine_oz_sold, sale_price_usd_per_oz,
-                     royalty_pct, commission_pct, exchange_rate_bs_per_usd, notes, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    sale_date.isoformat(), category, fine_oz_sold, sale_price_usd_per_oz,
-                    royalty_pct, commission_pct, exchange_rate_bs_per_usd, notes,
-                    created_at.isoformat(),
-                ),
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                sales_table.insert().values(
+                    sale_date=sale_date.isoformat(),
+                    category=category,
+                    fine_oz_sold=fine_oz_sold,
+                    sale_price_usd_per_oz=sale_price_usd_per_oz,
+                    royalty_pct=royalty_pct,
+                    commission_pct=commission_pct,
+                    exchange_rate_bs_per_usd=exchange_rate_bs_per_usd,
+                    notes=notes,
+                    created_at=created_at.isoformat(),
+                )
             )
-            sale_id = cur.lastrowid
+            sale_id = result.inserted_primary_key[0]
         return self.get_sale(sale_id)
 
     def get_sale(self, sale_id: int) -> Optional[Sale]:
-        with self._connect() as conn:
+        with self.engine.connect() as conn:
             row = conn.execute(
-                "SELECT id, sale_date, category, fine_oz_sold, sale_price_usd_per_oz, "
-                "royalty_pct, commission_pct, exchange_rate_bs_per_usd, notes, created_at "
-                "FROM sales WHERE id = ?",
-                (sale_id,),
-            ).fetchone()
+                select(sales_table).where(sales_table.c.id == sale_id)
+            ).first()
         return _row_to_sale(row) if row else None
 
     def list_sales(self, category: Optional[str] = None) -> list[Sale]:
-        query = (
-            "SELECT id, sale_date, category, fine_oz_sold, sale_price_usd_per_oz, "
-            "royalty_pct, commission_pct, exchange_rate_bs_per_usd, notes, created_at "
-            "FROM sales "
-        )
-        params: tuple = ()
+        query = select(sales_table)
         if category:
-            query += "WHERE category = ? "
-            params = (category,)
-        query += "ORDER BY sale_date, id"
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
+            query = query.where(sales_table.c.category == category)
+        query = query.order_by(sales_table.c.sale_date, sales_table.c.id)
+        with self.engine.connect() as conn:
+            rows = conn.execute(query).fetchall()
         return [_row_to_sale(row) for row in rows]
 
     # -- inventory / cost basis ---------------------------------------------
@@ -407,29 +358,31 @@ def _validate_category(category: str) -> None:
 
 
 def _row_to_purchase(row) -> Purchase:
+    m = row._mapping
     return Purchase(
-        id=row[0],
-        purchase_date=date.fromisoformat(row[1]),
-        category=row[2],
-        weight_g=row[3],
-        purity_pct=row[4],
-        price_usd_per_oz=row[5],
-        exchange_rate_bs_per_usd=row[6],
-        notes=row[7] or "",
-        created_at=datetime.fromisoformat(row[8]),
+        id=m["id"],
+        purchase_date=date.fromisoformat(m["purchase_date"]),
+        category=m["category"],
+        weight_g=m["weight_g"],
+        purity_pct=m["purity_pct"],
+        price_usd_per_oz=m["price_usd_per_oz"],
+        exchange_rate_bs_per_usd=m["exchange_rate_bs_per_usd"],
+        notes=m["notes"] or "",
+        created_at=datetime.fromisoformat(m["created_at"]),
     )
 
 
 def _row_to_sale(row) -> Sale:
+    m = row._mapping
     return Sale(
-        id=row[0],
-        sale_date=date.fromisoformat(row[1]),
-        category=row[2],
-        fine_oz_sold=row[3],
-        sale_price_usd_per_oz=row[4],
-        royalty_pct=row[5],
-        commission_pct=row[6],
-        exchange_rate_bs_per_usd=row[7],
-        notes=row[8] or "",
-        created_at=datetime.fromisoformat(row[9]),
+        id=m["id"],
+        sale_date=date.fromisoformat(m["sale_date"]),
+        category=m["category"],
+        fine_oz_sold=m["fine_oz_sold"],
+        sale_price_usd_per_oz=m["sale_price_usd_per_oz"],
+        royalty_pct=m["royalty_pct"],
+        commission_pct=m["commission_pct"],
+        exchange_rate_bs_per_usd=m["exchange_rate_bs_per_usd"],
+        notes=m["notes"] or "",
+        created_at=datetime.fromisoformat(m["created_at"]),
     )

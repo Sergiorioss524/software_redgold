@@ -18,9 +18,25 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+# NOTE: do not mkdir() here -- this module is imported on every request in
+# serverless environments (Vercel) whose filesystem is read-only outside
+# /tmp. The directory is only created lazily, in redgold/db.py, and only
+# when DATABASE_URL actually resolves to a local sqlite file.
 
 DB_PATH = Path(os.getenv("REDGOLD_DB_PATH", DATA_DIR / "redgold.db"))
+
+# Resolution order: explicit DATABASE_URL, then Vercel's injected Postgres
+# vars (POSTGRES_URL uses pooled/pgbouncer; POSTGRES_URL_NON_POOLING is the
+# direct connection -- either works here since queries are one-shot), then
+# fall back to a local SQLite file for local dev / tests. Left un-normalized
+# here (postgres:// vs postgresql+psycopg://) -- redgold.db.make_engine
+# normalizes any URL it's given, regardless of call path.
+DATABASE_URL = (
+    os.getenv("DATABASE_URL")
+    or os.getenv("POSTGRES_URL")
+    or os.getenv("POSTGRES_URL_NON_POOLING")
+    or f"sqlite:///{DB_PATH}"
+)
 
 HTTP_TIMEOUT_SECONDS = float(os.getenv("REDGOLD_HTTP_TIMEOUT", "15"))
 HTTP_USER_AGENT = os.getenv(

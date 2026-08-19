@@ -41,11 +41,11 @@ DEFAULT_ROYALTY_PCT = {
 
 
 def get_ledger() -> Ledger:
-    return Ledger(config.DB_PATH)
+    return Ledger(config.DATABASE_URL)
 
 
 def get_history() -> PriceHistory:
-    return PriceHistory(config.DB_PATH)
+    return PriceHistory(config.DATABASE_URL)
 
 
 @app.context_processor

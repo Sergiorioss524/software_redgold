@@ -98,7 +98,7 @@ def test_bcb_cycle_matches_workbook():
 
 @pytest.fixture
 def store(tmp_path):
-    return ledger.Ledger(tmp_path / "test.db")
+    return ledger.Ledger(f"sqlite:///{tmp_path / 'test.db'}")
 
 
 def test_single_purchase_single_sale_reproduces_workbook(store):

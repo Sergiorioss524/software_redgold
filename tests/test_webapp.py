@@ -12,7 +12,7 @@ from redgold import webapp
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     db_path = tmp_path / "test_web.db"
-    monkeypatch.setattr(webapp.config, "DB_PATH", db_path)
+    monkeypatch.setattr(webapp.config, "DATABASE_URL", f"sqlite:///{db_path}")
     webapp.app.config.update(TESTING=True)
     return webapp.app.test_client()
 
@@ -104,7 +104,7 @@ def test_oversell_is_rejected_via_form(client):
 def test_dashboard_reference_calculator(client, monkeypatch):
     from datetime import date
 
-    history = webapp.PriceHistory(webapp.config.DB_PATH)
+    history = webapp.PriceHistory(webapp.config.DATABASE_URL)
     from datetime import datetime, timezone
     history.save_quote(date.today(), "netdania", 4670.0, datetime.now(timezone.utc), "raw")
 

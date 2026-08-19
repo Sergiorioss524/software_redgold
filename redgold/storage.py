@@ -1,36 +1,16 @@
-"""SQLite-backed history of daily gold quotes and computed adjustments."""
+"""Gold price history (reference price only), backed by Postgres in
+production or a local SQLite file in dev/tests -- see redgold/db.py."""
 from __future__ import annotations
 
-import sqlite3
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Optional, Union
+
+from sqlalchemy import select
 
 from redgold import config
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS gold_prices (
-    quote_date TEXT NOT NULL,
-    source TEXT NOT NULL,
-    price_usd_per_oz REAL NOT NULL,
-    fetched_at TEXT NOT NULL,
-    raw_text TEXT,
-    PRIMARY KEY (quote_date, source)
-);
-
-CREATE TABLE IF NOT EXISTS daily_adjustments (
-    quote_date TEXT PRIMARY KEY,
-    source TEXT NOT NULL,
-    price_usd_per_oz REAL NOT NULL,
-    previous_price_usd_per_oz REAL,
-    change_usd REAL,
-    change_pct REAL,
-    adjustment_factor REAL,
-    computed_at TEXT NOT NULL
-);
-"""
+from redgold.db import daily_adjustments, gold_prices, make_engine
 
 
 @dataclass(frozen=True)
@@ -43,93 +23,98 @@ class StoredQuote:
 
 
 class PriceHistory:
-    def __init__(self, db_path: Path | str = config.DB_PATH):
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
-            conn.executescript(_SCHEMA)
-
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path)
-        try:
-            yield conn
-            conn.commit()
-        finally:
-            conn.close()
+    def __init__(self, database_url: Optional[Union[str, Path]] = None):
+        if isinstance(database_url, Path):
+            database_url = f"sqlite:///{database_url}"
+        self.engine = make_engine(database_url or config.DATABASE_URL)
 
     def save_quote(self, quote_date: date, source: str, price: float,
                     fetched_at: datetime, raw_text: str) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO gold_prices (quote_date, source, price_usd_per_oz, fetched_at, raw_text)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(quote_date, source) DO UPDATE SET
-                    price_usd_per_oz=excluded.price_usd_per_oz,
-                    fetched_at=excluded.fetched_at,
-                    raw_text=excluded.raw_text
-                """,
-                (quote_date.isoformat(), source, price, fetched_at.isoformat(), raw_text),
-            )
+        values = dict(
+            quote_date=quote_date.isoformat(),
+            source=source,
+            price_usd_per_oz=price,
+            fetched_at=fetched_at.isoformat(),
+            raw_text=raw_text,
+        )
+        with self.engine.begin() as conn:
+            exists = conn.execute(
+                select(gold_prices.c.quote_date).where(
+                    gold_prices.c.quote_date == values["quote_date"],
+                    gold_prices.c.source == source,
+                )
+            ).first()
+            if exists:
+                conn.execute(
+                    gold_prices.update()
+                    .where(
+                        gold_prices.c.quote_date == values["quote_date"],
+                        gold_prices.c.source == source,
+                    )
+                    .values(**values)
+                )
+            else:
+                conn.execute(gold_prices.insert().values(**values))
 
     def get_quote(self, quote_date: date, source: str) -> Optional[StoredQuote]:
-        with self._connect() as conn:
+        with self.engine.connect() as conn:
             row = conn.execute(
-                "SELECT quote_date, source, price_usd_per_oz, fetched_at, raw_text "
-                "FROM gold_prices WHERE quote_date = ? AND source = ?",
-                (quote_date.isoformat(), source),
-            ).fetchone()
-        if row is None:
-            return None
-        return StoredQuote(
-            quote_date=date.fromisoformat(row[0]),
-            source=row[1],
-            price_usd_per_oz=row[2],
-            fetched_at=datetime.fromisoformat(row[3]),
-            raw_text=row[4] or "",
-        )
+                select(gold_prices).where(
+                    gold_prices.c.quote_date == quote_date.isoformat(),
+                    gold_prices.c.source == source,
+                )
+            ).first()
+        return _row_to_quote(row) if row else None
 
     def latest_quote_before(self, quote_date: date, source: str) -> Optional[StoredQuote]:
-        with self._connect() as conn:
+        with self.engine.connect() as conn:
             row = conn.execute(
-                "SELECT quote_date, source, price_usd_per_oz, fetched_at, raw_text "
-                "FROM gold_prices WHERE source = ? AND quote_date < ? "
-                "ORDER BY quote_date DESC LIMIT 1",
-                (source, quote_date.isoformat()),
-            ).fetchone()
-        if row is None:
-            return None
-        return StoredQuote(
-            quote_date=date.fromisoformat(row[0]),
-            source=row[1],
-            price_usd_per_oz=row[2],
-            fetched_at=datetime.fromisoformat(row[3]),
-            raw_text=row[4] or "",
-        )
+                select(gold_prices)
+                .where(
+                    gold_prices.c.source == source,
+                    gold_prices.c.quote_date < quote_date.isoformat(),
+                )
+                .order_by(gold_prices.c.quote_date.desc())
+                .limit(1)
+            ).first()
+        return _row_to_quote(row) if row else None
 
     def save_adjustment(self, quote_date: date, source: str, price: float,
                          previous_price: Optional[float], change_usd: Optional[float],
                          change_pct: Optional[float], adjustment_factor: float,
                          computed_at: datetime) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO daily_adjustments
-                    (quote_date, source, price_usd_per_oz, previous_price_usd_per_oz,
-                     change_usd, change_pct, adjustment_factor, computed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(quote_date) DO UPDATE SET
-                    source=excluded.source,
-                    price_usd_per_oz=excluded.price_usd_per_oz,
-                    previous_price_usd_per_oz=excluded.previous_price_usd_per_oz,
-                    change_usd=excluded.change_usd,
-                    change_pct=excluded.change_pct,
-                    adjustment_factor=excluded.adjustment_factor,
-                    computed_at=excluded.computed_at
-                """,
-                (
-                    quote_date.isoformat(), source, price, previous_price,
-                    change_usd, change_pct, adjustment_factor, computed_at.isoformat(),
-                ),
-            )
+        values = dict(
+            quote_date=quote_date.isoformat(),
+            source=source,
+            price_usd_per_oz=price,
+            previous_price_usd_per_oz=previous_price,
+            change_usd=change_usd,
+            change_pct=change_pct,
+            adjustment_factor=adjustment_factor,
+            computed_at=computed_at.isoformat(),
+        )
+        with self.engine.begin() as conn:
+            exists = conn.execute(
+                select(daily_adjustments.c.quote_date).where(
+                    daily_adjustments.c.quote_date == values["quote_date"]
+                )
+            ).first()
+            if exists:
+                conn.execute(
+                    daily_adjustments.update()
+                    .where(daily_adjustments.c.quote_date == values["quote_date"])
+                    .values(**values)
+                )
+            else:
+                conn.execute(daily_adjustments.insert().values(**values))
+
+
+def _row_to_quote(row) -> StoredQuote:
+    m = row._mapping
+    return StoredQuote(
+        quote_date=date.fromisoformat(m["quote_date"]),
+        source=m["source"],
+        price_usd_per_oz=m["price_usd_per_oz"],
+        fetched_at=datetime.fromisoformat(m["fetched_at"]),
+        raw_text=m["raw_text"] or "",
+    )
