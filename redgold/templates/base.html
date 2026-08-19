@@ -37,6 +37,53 @@
     .flash.error { background: #fbe9e7; color: #b3261e; }
     .muted { color: #777; font-size: 0.85rem; }
   </style>
+  <script>
+    var TROY_OUNCE_GRAMS = 31.1035;
+    // ids: {weight, purity, buyPrice, buyRate, outFineWeight, outFineOz, outTotalUsd, outTotalBs}
+    // buyPrice/buyRate/outTotalUsd/outTotalBs are optional -- omit them to
+    // only track peso fino / onza fina.
+    function bindPurchaseCalc(ids) {
+      var weightEl = document.getElementById(ids.weight);
+      var purityEl = document.getElementById(ids.purity);
+      var buyPriceEl = ids.buyPrice ? document.getElementById(ids.buyPrice) : null;
+      var buyRateEl = ids.buyRate ? document.getElementById(ids.buyRate) : null;
+      var outFineWeightEl = document.getElementById(ids.outFineWeight);
+      var outFineOzEl = ids.outFineOz ? document.getElementById(ids.outFineOz) : null;
+      var outTotalUsdEl = ids.outTotalUsd ? document.getElementById(ids.outTotalUsd) : null;
+      var outTotalBsEl = ids.outTotalBs ? document.getElementById(ids.outTotalBs) : null;
+      if (!weightEl || !purityEl || !outFineWeightEl) return;
+
+      function update() {
+        var w = parseFloat(weightEl.value);
+        var p = parseFloat(purityEl.value);
+        var fineGrams = (isNaN(w) || isNaN(p)) ? null : w * p;
+        var fineOz = fineGrams === null ? null : fineGrams / TROY_OUNCE_GRAMS;
+
+        outFineWeightEl.textContent = 'Peso fino: ' + (fineGrams === null ? '—' : fineGrams.toFixed(4) + ' gr');
+        if (outFineOzEl) {
+          outFineOzEl.textContent = 'Onza fina: ' + (fineOz === null ? '—' : fineOz.toFixed(4) + ' oz');
+        }
+
+        if (outTotalUsdEl || outTotalBsEl) {
+          var buyPrice = buyPriceEl ? parseFloat(buyPriceEl.value) : NaN;
+          var buyRate = buyRateEl ? parseFloat(buyRateEl.value) : NaN;
+          var totalUsd = (fineOz === null || isNaN(buyPrice)) ? null : fineOz * buyPrice;
+          var totalBs = (totalUsd === null || isNaN(buyRate)) ? null : totalUsd * buyRate;
+          if (outTotalUsdEl) {
+            outTotalUsdEl.textContent = 'Total en dólares: ' + (totalUsd === null ? '—' : '$' + totalUsd.toFixed(2));
+          }
+          if (outTotalBsEl) {
+            outTotalBsEl.textContent = 'Total de compra en Bolivianos: ' + (totalBs === null ? '—' : totalBs.toFixed(2) + ' Bs');
+          }
+        }
+      }
+
+      [weightEl, purityEl, buyPriceEl, buyRateEl].forEach(function(el) {
+        if (el) el.addEventListener('input', update);
+      });
+      update();
+    }
+  </script>
 </head>
 <body>
   <h1>RedGold — Ledger</h1>

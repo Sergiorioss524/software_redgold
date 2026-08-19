@@ -46,14 +46,18 @@
     <label for="rt_purity">Ley (0-1)</label>
     <input id="rt_purity" name="rt_purity" type="number" step="0.0001"
            value="{{ round_trip.purity_pct if round_trip else default_purity }}">
+    <div class="muted" id="rt_fine_weight" style="margin:0.2rem 0">Peso fino: —</div>
+    <div class="muted" id="rt_fine_oz" style="margin:0.2rem 0 0.4rem">Onza fina: —</div>
 
-    <label for="rt_buy_price">Precio de compra (USD/oz)</label>
+    <label for="rt_buy_price">Bolsa de compra ($/Oz)</label>
     <input id="rt_buy_price" name="rt_buy_price" type="number" step="0.01" required
            value="{{ round_trip.buy_price if round_trip else (latest_price.price_usd_per_oz if latest_price else '') }}">
 
-    <label for="rt_buy_rate">TC de compra (Bs/$)</label>
+    <label for="rt_buy_rate">Tipo de cambio minero (Bs/$)</label>
     <input id="rt_buy_rate" name="rt_buy_rate" type="number" step="0.0001" required
            value="{{ round_trip.buy_rate if round_trip else '' }}">
+    <div class="muted" id="rt_total_usd" style="margin:0.2rem 0">Total en dólares: —</div>
+    <div class="muted" id="rt_total_bs" style="margin:0.2rem 0 0.4rem">Total de compra en Bolivianos: —</div>
 
     <label for="rt_sell_price">Precio de venta (USD/oz)</label>
     <input id="rt_sell_price" name="rt_sell_price" type="number" step="0.01"
@@ -73,6 +77,14 @@
 
     <button type="submit" style="margin-top:0.8rem">Calcular</button>
   </form>
+  <script>
+    bindPurchaseCalc({
+      weight: 'rt_weight_g', purity: 'rt_purity',
+      buyPrice: 'rt_buy_price', buyRate: 'rt_buy_rate',
+      outFineWeight: 'rt_fine_weight', outFineOz: 'rt_fine_oz',
+      outTotalUsd: 'rt_total_usd', outTotalBs: 'rt_total_bs'
+    });
+  </script>
 
   {% if round_trip %}
     <table style="margin-top:1rem">
