@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — RedGold{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="stat-label">Precio de hoy ({{ today }})</div>
+  {% if latest_price %}
+    <div class="stat">{{ "%.2f"|format(latest_price.price_usd_per_oz) }} USD/oz
+      <span class="muted">({{ latest_price.source }})</span></div>
+  {% else %}
+    <div class="stat muted">Sin cotización todavía hoy</div>
+  {% endif %}
+  <form method="post" action="{{ url_for('fetch_price') }}" style="margin-top:0.6rem">
+    <button type="submit">Obtener precio de hoy</button>
+  </form>
+</div>
+
+<h2>Ciclos</h2>
+<div class="grid">
+  {% for cycle in cycles %}
+  <div class="card">
+    <strong>{{ cycle.label }}</strong>
+    <div style="margin-top:0.5rem">
+      <div class="stat-label">Inventario</div>
+      <div class="stat">{{ "%.4f"|format(cycle.inventory_fine_oz) }} oz finas</div>
+    </div>
+    <table style="margin-top:0.75rem">
+      <tr><td>Costo promedio</td><td>{{ "%.2f"|format(cycle.avg_cost_usd_per_oz) }} USD/oz &middot; {{ "%.2f"|format(cycle.avg_cost_bs_per_oz) }} Bs/oz</td></tr>
+      <tr><td>Compras / Ventas</td><td>{{ cycle.purchase_count }} / {{ cycle.sale_count }}</td></tr>
+    </table>
+    {% if cycle.latest_profit %}
+      <div class="stat-label" style="margin-top:0.5rem">Última venta — utilidad neta</div>
+      <div class="stat {{ 'positive' if cycle.latest_profit.net_profit_bs >= 0 else 'negative' }}">
+        {{ "%.2f"|format(cycle.latest_profit.net_profit_bs) }} Bs
+      </div>
+      <div class="muted">≈ {{ "%.2f"|format(cycle.latest_profit.net_profit_usd_equiv) }} USD equiv. (TC de la venta)
+        &middot; utilidad directa USD: {{ "%.2f"|format(cycle.latest_profit.profit_usd_direct) }}</div>
+    {% else %}
+      <div class="muted" style="margin-top:0.5rem">Sin ventas todavía</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<h2>Referencia: precio por gramo y capacidad de recompra</h2>
+<p class="muted">Calculadora informativa (equivalente a "COTIZACION PRECIO POR GR AL DIA" de la planilla).
+  No crea ninguna compra — solo referencia.</p>
+<div class="card">
+  <form class="stack" method="get" action="{{ url_for('dashboard') }}">
+    <label for="calc_category">Ciclo</label>
+    <select id="calc_category" name="calc_category">
+      {% for cat in categories %}
+        <option value="{{ cat }}" {{ 'selected' if calc and calc.category == cat }}>{{ category_labels[cat] }}</option>
+      {% endfor %}
+    </select>
+    <label for="purity">Ley (0-1)</label>
+    <input id="purity" name="purity" type="number" step="0.0001" value="{{ calc.purity_pct if calc else default_purity }}">
+    <label for="rate">Tipo de cambio (Bs/$)</label>
+    <input id="rate" name="rate" type="number" step="0.0001" placeholder="ej. 9.43" value="{{ calc.exchange_rate if calc else '' }}">
+    <button type="submit" style="margin-top:0.8rem">Calcular</button>
+  </form>
+  {% if calc %}
+    <table style="margin-top:1rem">
+      <tr><td>Precio por gramo hoy</td><td>{{ "%.4f"|format(calc.price_per_gram_bs) }} Bs/gr</td></tr>
+      <tr><td>Utilidad neta usada</td><td>{{ "%.2f"|format(calc.net_profit_bs_used) }} Bs</td></tr>
+      <tr><td>Gramos que alcanzarían para comprar</td><td><strong>{{ "%.4f"|format(calc.affordable_grams) }} gr</strong></td></tr>
+    </table>
+  {% elif not latest_price %}
+    <p class="muted">Obtén el precio de hoy primero.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

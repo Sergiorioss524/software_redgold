@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Nueva compra — RedGold{% endblock %}
+{% block content %}
+<h2>Registrar compra</h2>
+<form class="stack" method="post" action="{{ url_for('new_purchase') }}">
+  <label for="purchase_date">Fecha</label>
+  <input id="purchase_date" name="purchase_date" type="date" value="{{ today }}" required>
+
+  <label for="category">Ciclo</label>
+  <select id="category" name="category" required>
+    {% for cat in categories %}
+      <option value="{{ cat }}">{{ category_labels[cat] }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="weight_g">Peso (gr)</label>
+  <input id="weight_g" name="weight_g" type="number" step="0.000001" required>
+
+  <label for="purity_pct">Ley (0-1, ej. 0.95)</label>
+  <input id="purity_pct" name="purity_pct" type="number" step="0.0001" value="{{ default_purity }}" required>
+
+  <label for="price_usd_per_oz">Bolsa de compra (USD/oz)</label>
+  <input id="price_usd_per_oz" name="price_usd_per_oz" type="number" step="0.01" required>
+
+  <label for="exchange_rate_bs_per_usd">TC minero (Bs/$)</label>
+  <input id="exchange_rate_bs_per_usd" name="exchange_rate_bs_per_usd" type="number" step="0.0001" required>
+
+  <label for="notes">Notas</label>
+  <input id="notes" name="notes" type="text">
+
+  <button type="submit" style="margin-top:1rem">Guardar compra</button>
+</form>
+{% endblock %}

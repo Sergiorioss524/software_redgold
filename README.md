@@ -1,96 +1,112 @@
 # software_redgold
 
-Daily gold-price pipeline for RedGold's operations: fetches the day's spot
-gold price, keeps a local history, computes the day-over-day adjustment,
-and (optionally) logs it into the business's Excel workbook.
+Autonomous gold buy/sell/reinvest ledger for RedGold's operations, modeled
+directly on the business logic that used to live as formulas inside
+`BALANCE_ULTIMO.xlsx`. That workbook is no longer needed to run the
+business day-to-day -- this system replaces it.
 
-## What this base does
+## What this does
 
-1. **Fetch** — tries Banco Central de Bolivia's cotizaciones page first,
-   falls back to Netdania's mobile commodities page if BCB is unavailable
-   or the parsed value looks implausible (`redgold/sources/`).
-2. **Store** — every fetched quote is saved to a local SQLite database
-   (`data/price_history.db`) so historical adjustments can always be
-   recomputed (`redgold/storage.py`).
-3. **Adjust** — compares today's price to the most recent prior quote from
-   the same source and derives a change ($, %) and an adjustment factor
-   (`redgold/adjustment.py`).
-4. **Excel (optional)** — appends one row per day to a
-   `Historial_Cotizaciones` sheet in your real workbook, without touching
-   any existing formula or cell (`redgold/excel_writer.py`).
+RedGold runs two parallel cycles, both replicated here:
 
-## Why the Excel integration is deliberately conservative
+- **Export cycle**: buy raw gold from miners by weight/purity, later sell
+  fine ounces abroad (minus royalties + commission), realize a profit.
+- **BCB cycle**: buy bulk material, later sell it to Banco Central de
+  Bolivia (different royalty rate), realize a profit.
 
-Your workbook (`BALANCE_ULTIMO.xlsx`) is a full gold trading/refining P&L
-model with a section literally named **"COTIZACION PRECIO POR GR AL DIA"**
-(rows 22-24), where `B24` ("BOLSA DE COMPRA") is the day's spot price that
-the rest of that block computes from. That's the natural target for daily
-automation -- but the same sheet also has several other manual transaction
-blocks (COMPRA DE ORO 1/2, VENTA EXPORT ORO, COMPRA DE MATERIAL, VENTA BCB)
-that record individual purchases/sales at whatever price applied *at the
-time*, and should never be silently overwritten.
+Each cycle tracks, over time (not just a single snapshot like the old
+sheet):
 
-So by default the pipeline only **appends to a new history sheet** — it
-never writes into `B24` or any other live cell. Once you're confident in
-the fetched values, `redgold/excel_writer.py:overwrite_daily_quote_cell`
-is ready to be wired into the daily run to write straight into `B24`.
+1. **Fetch** — the day's spot gold price, from BCB or (falling back)
+   Netdania (`redgold/sources/`), stored in local history
+   (`redgold/storage.py`) and used only as an informational reference on
+   the dashboard.
+2. **Purchases** — recorded by weight (g), purity ("ley"), price (USD/oz),
+   and exchange rate (Bs/$). Fine-ounce weight and totals (Bs and USD) are
+   derived with the same formulas as the original `COMPRA DE ORO` /
+   `COMPRA DE MATERIAL` blocks.
+3. **Sales** — recorded by fine ounces sold, sale price, royalty %,
+   commission %, and exchange rate. Totals are derived exactly like
+   `VENTA EXPORT ORO` / `VENTA BCB`.
+4. **Inventory & cost basis** — each cycle's fine-oz on hand is
+   `purchased - sold`; a sale's cost basis is the weighted-average cost
+   (tracked independently in USD and Bs, since the sheet derived them from
+   different exchange rates) of every purchase in that cycle up to the
+   sale date. Selling more than is on hand is rejected.
+5. **Profit** — mirrors the `REDGOLD` block: a direct USD profit (sale USD
+   proceeds minus USD cost basis) and a Bs profit (sale Bs proceeds minus
+   Bs cost basis, net of a configurable operating-cost %), each shown both
+   in Bs and as a USD-equivalent at the sale's own exchange rate. These two
+   profit figures intentionally differ -- see the docstring on
+   `compute_cycle_profit` in `redgold/ledger.py`.
+6. **Reference calculator** — an informational "how many extra grams could
+   today's profit buy at today's price" figure (mirrors
+   `COTIZACION PRECIO POR GR AL DIA`). It never auto-creates a purchase;
+   every transaction is entered by hand.
 
-The real workbook is **not** committed to this repo (see `.gitignore`) —
-it contains your live business figures. Point the pipeline at your local
-copy via `--workbook` or the `REDGOLD_WORKBOOK_PATH` env var.
+All of this is exposed through a local web dashboard
+(`redgold/webapp.py`) instead of writing back into Excel.
 
 ## Setup
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # adjust selectors/paths once you confirm the live HTML
+cp .env.example .env   # adjust selectors/rates once you confirm live values
 ```
 
-## Running a daily update
+## Running the dashboard
+
+```bash
+python scripts/run_web.py
+# then open http://127.0.0.1:5000
+```
+
+From the dashboard you can fetch today's reference price, record purchases
+and sales for either cycle, and see inventory / profit per cycle.
+
+## Fetching just the daily reference price (e.g. from cron)
 
 ```bash
 python scripts/run_daily_update.py
-# or, to also log into your workbook's history sheet:
-python scripts/run_daily_update.py --workbook /path/to/BALANCE_ULTIMO.xlsx
 ```
 
-Schedule it once a day (cron, Task Scheduler, or a CI scheduled job) for
-fully automatic daily adjustment.
+Schedule it once a day (cron, Task Scheduler, or a CI scheduled job) so the
+dashboard's reference price and affordability calculator stay current --
+this does not touch purchases/sales, which are entered by hand.
 
 ## Tuning the scrapers
 
-BCB and Netdania were not reachable for live inspection while this base
-was built (both domains were blocked from the build environment), so the
-scrapers use a defensive generic strategy: scan every `<table>` matched by
-a configurable CSS selector, find the row mentioning "oro"/"gold"/"xau",
-and pull the first plausible number (sanity-bounded between
-`REDGOLD_MIN_PRICE` and `REDGOLD_MAX_PRICE` USD/oz, see `.env.example`).
+BCB actively blocks the scraper's requests (`403 Forbidden` as of last
+check) -- Netdania works and is used as the automatic fallback. Once you
+can inspect BCB's live page yourself (or get an allowed User-Agent):
 
-Once you can inspect the live pages yourself:
-- Adjust `REDGOLD_BCB_SELECTOR` / `REDGOLD_NETDANIA_SELECTOR` in `.env` to
-  target the exact table if the generic scan is too broad.
+- Adjust `REDGOLD_BCB_SELECTOR` / `REDGOLD_NETDANIA_SELECTOR` in `.env` if
+  the generic table scan is too broad.
 - Or override `_extract_price` in `redgold/sources/bcb.py` /
   `netdania.py` for fully custom, site-specific parsing.
-- `tests/fixtures/*.html` hold sample markup used by the unit tests —
-  replace them with real captured HTML to keep the tests representative.
+- `tests/fixtures/*.html` hold sample markup used by the unit tests.
 
 ## Project layout
 
 ```
 redgold/
-  config.py          # env-driven settings: URLs, selectors, DB path, workbook path
+  config.py          # env-driven settings: URLs, selectors, DB path, ledger defaults
   sources/
     base.py           # shared fetch/parse/validate logic
     bcb.py             # Banco Central de Bolivia source
     netdania.py         # Netdania source
-  storage.py           # SQLite price + adjustment history
-  adjustment.py         # day-over-day adjustment calculation
-  excel_writer.py        # workbook history-sheet integration
-  pipeline.py             # orchestrates fetch -> store -> adjust
+  storage.py           # SQLite price history (reference price only)
+  adjustment.py         # day-over-day price change calculation
+  ledger.py              # purchases, sales, inventory, cost basis, profit (the core model)
+  pipeline.py             # orchestrates price fetch -> store -> adjust
+  webapp.py               # Flask dashboard: record purchases/sales, view inventory & profit
+  templates/                # dashboard + form + list HTML
 scripts/
-  run_daily_update.py      # CLI entrypoint, safe to schedule daily
-tests/                       # pytest suite with offline fixtures
+  run_web.py             # launch the dashboard
+  run_daily_update.py      # CLI entrypoint for the daily reference-price fetch
+tests/                       # pytest suite: ledger math verified against the real
+                              # workbook's cell values, plus web dashboard smoke tests
 ```
 
 ## Tests
@@ -98,5 +114,10 @@ tests/                       # pytest suite with offline fixtures
 ```bash
 python -m pytest -q
 ```
-# software_redgold
-# software_redgold
+
+`tests/test_ledger.py` reproduces the exact numbers from the original
+`BALANCE_ULTIMO.xlsx` (COMPRA DE ORO 1, VENTA EXPORT ORO, REDGOLD,
+COTIZACION, and the BCB cycle) to confirm the formulas were ported
+correctly. `tests/test_webapp.py` drives the dashboard's golden paths
+(record a purchase, record a sale, view profit, reject an oversell)
+through Flask's test client.
