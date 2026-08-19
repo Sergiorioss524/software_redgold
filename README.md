@@ -1,51 +1,47 @@
 # software_redgold
 
-Autonomous gold buy/sell/reinvest ledger for RedGold's operations, modeled
-directly on the business logic that used to live as formulas inside
-`BALANCE_ULTIMO.xlsx`. That workbook is no longer needed to run the
-business day-to-day -- this system replaces it.
+A same-day profitability calculator for RedGold's gold buy/sell operations:
+"is it worth buying or selling gold today?" Built on the business logic
+that used to live as formulas inside `BALANCE_ULTIMO.xlsx`. That workbook
+is no longer needed to run the business day-to-day -- this system replaces
+it.
 
 ## What this does
 
-RedGold runs two parallel cycles, both replicated here:
+RedGold runs two parallel cycles, both modeled here:
 
 - **Export cycle**: buy raw gold from miners by weight/purity, later sell
-  fine ounces abroad (minus royalties + commission), realize a profit.
+  fine ounces abroad (minus royalties + commission).
 - **BCB cycle**: buy bulk material, later sell it to Banco Central de
-  Bolivia (different royalty rate), realize a profit.
+  Bolivia (different royalty rate).
 
-Each cycle tracks, over time (not just a single snapshot like the old
-sheet):
+The dashboard (`redgold/webapp.py`) leads with two what-if calculators --
+neither saves anything, both answer "is today a good day to trade":
 
-1. **Fetch** — the day's spot gold price, from BCB or (falling back)
-   Netdania (`redgold/sources/`), stored in local history
-   (`redgold/storage.py`) and used only as an informational reference on
-   the dashboard.
-2. **Purchases** — recorded by weight (g), purity ("ley"), price (USD/oz),
-   and exchange rate (Bs/$). Fine-ounce weight and totals (Bs and USD) are
-   derived with the same formulas as the original `COMPRA DE ORO` /
-   `COMPRA DE MATERIAL` blocks.
-3. **Sales** — recorded by fine ounces sold, sale price, royalty %,
-   commission %, and exchange rate. Totals are derived exactly like
-   `VENTA EXPORT ORO` / `VENTA BCB`.
-4. **Inventory & cost basis** — each cycle's fine-oz on hand is
-   `purchased - sold`; a sale's cost basis is the weighted-average cost
-   (tracked independently in USD and Bs, since the sheet derived them from
-   different exchange rates) of every purchase in that cycle up to the
-   sale date. Selling more than is on hand is rejected.
-5. **Profit** — mirrors the `REDGOLD` block: a direct USD profit (sale USD
-   proceeds minus USD cost basis) and a Bs profit (sale Bs proceeds minus
-   Bs cost basis, net of a configurable operating-cost %), each shown both
-   in Bs and as a USD-equivalent at the sale's own exchange rate. These two
-   profit figures intentionally differ -- see the docstring on
-   `compute_cycle_profit` in `redgold/ledger.py`.
-6. **Reference calculator** — an informational "how many extra grams could
-   today's profit buy at today's price" figure (mirrors
-   `COTIZACION PRECIO POR GR AL DIA`). It never auto-creates a purchase;
-   every transaction is entered by hand.
+1. **Comprar y vender hoy** — simulate buying gold today and flipping it
+   the same day: enter weight/purity/buy price/sell price/rates/fees, get
+   the round-trip margin (gross profit, operating cost, net profit, both
+   in Bs and USD).
+2. **Vender mi inventario hoy** — simulate selling gold you've already
+   bought, using the *real* weighted-average cost basis from your recorded
+   purchases, against a hypothetical sale price/rate today.
 
-All of this is exposed through a local web dashboard
-(`redgold/webapp.py`) instead of writing back into Excel.
+Both reuse the same formulas (`redgold/ledger.py`) ported from the
+workbook's `COMPRA DE ORO` / `VENTA EXPORT ORO` / `VENTA BCB` / `REDGOLD`
+blocks -- verified against the sheet's real numbers in
+`tests/test_ledger.py`.
+
+Underneath the calculators, actual purchases/sales can still be recorded
+and kept as a running ledger (inventory, cost basis, history) -- that's
+what feeds the "sell my inventory" calculator's real cost basis. A sale's
+profit mirrors the `REDGOLD` block: a direct USD profit (sale USD proceeds
+minus USD cost basis) and a Bs profit (sale Bs proceeds minus Bs cost
+basis, net of a configurable operating-cost %) -- these two intentionally
+differ, see the docstring on `compute_cycle_profit` in `redgold/ledger.py`.
+
+The day's spot gold price (BCB, falling back to Netdania --
+`redgold/sources/`) is fetched from the dashboard to prefill both
+calculators.
 
 ## Setup
 

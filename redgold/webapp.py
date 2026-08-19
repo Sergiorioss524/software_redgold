@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime
+from typing import Optional
 
 from flask import Flask, flash, redirect, render_template, request, url_for
 
@@ -19,8 +20,9 @@ from redgold.ledger import (
     CATEGORY_EXPORT,
     InsufficientInventoryError,
     Ledger,
-    compute_affordable_grams,
-    compute_price_per_gram_bs,
+    compute_cycle_profit,
+    compute_purchase_totals,
+    compute_sale_totals,
 )
 from redgold.pipeline import DEFAULT_SOURCES, run_daily_update
 from redgold.sources.base import GoldPriceUnavailableError
@@ -70,57 +72,119 @@ def dashboard():
     for category in CATEGORIES:
         inventory = ledger.inventory_fine_oz(category)
         avg_usd, avg_bs = ledger.average_cost(category)
-        sales = ledger.list_sales(category)
-        latest_sale = sales[-1] if sales else None
-        latest_profit = ledger.sale_profit(latest_sale) if latest_sale else None
         cycles.append({
             "category": category,
             "label": CATEGORY_LABELS[category],
             "inventory_fine_oz": inventory,
             "avg_cost_usd_per_oz": avg_usd,
             "avg_cost_bs_per_oz": avg_bs,
-            "purchase_count": len(ledger.list_purchases(category)),
-            "sale_count": len(sales),
-            "latest_sale": latest_sale,
-            "latest_profit": latest_profit,
         })
 
-    # Informational reference calculator (COTIZACION PRECIO POR GR AL DIA) --
-    # never creates a transaction, purely a "what could today's profit buy" figure.
-    calc = None
-    try:
-        purity_pct = float(request.args.get("purity", config.DEFAULT_PURITY_PCT))
-        rate = request.args.get("rate")
-        calc_category = request.args.get("calc_category", CATEGORY_EXPORT)
-        if rate and latest_price and calc_category in CATEGORIES:
-            exchange_rate = float(rate)
-            price_per_gram_bs = compute_price_per_gram_bs(
-                latest_price.price_usd_per_oz, purity_pct, exchange_rate
-            )
-            cycle = next(c for c in cycles if c["category"] == calc_category)
-            net_profit_bs = (
-                cycle["latest_profit"].net_profit_bs if cycle["latest_profit"] else 0.0
-            )
-            affordable_grams = compute_affordable_grams(net_profit_bs, price_per_gram_bs)
-            calc = {
-                "purity_pct": purity_pct,
-                "exchange_rate": exchange_rate,
-                "category": calc_category,
-                "price_per_gram_bs": price_per_gram_bs,
-                "net_profit_bs_used": net_profit_bs,
-                "affordable_grams": affordable_grams,
-            }
-    except (TypeError, ValueError):
-        calc = None
+    round_trip = _parse_round_trip_calc(request.args, latest_price)
+    inventory_sale = _parse_inventory_sale_calc(request.args, ledger)
 
     return render_template(
         "dashboard.html",
         latest_price=latest_price,
         cycles=cycles,
-        calc=calc,
+        round_trip=round_trip,
+        inventory_sale=inventory_sale,
         default_purity=config.DEFAULT_PURITY_PCT,
+        default_royalty=DEFAULT_ROYALTY_PCT,
+        default_commission=config.DEFAULT_COMMISSION_PCT,
         today=today,
     )
+
+
+def _parse_round_trip_calc(args, latest_price) -> Optional[dict]:
+    """'Buy today, sell today' simulator -- pure what-if, never touches the
+    ledger. Answers "if I bought and flipped this right now, what would I
+    make," using compute_purchase_totals -> compute_sale_totals ->
+    compute_cycle_profit exactly as the ledger does for a real trade."""
+    if "rt_weight_g" not in args:
+        return None
+    try:
+        category = args.get("rt_category", CATEGORY_EXPORT)
+        weight_g = float(args["rt_weight_g"])
+        purity_pct = float(args.get("rt_purity", config.DEFAULT_PURITY_PCT))
+        buy_price = float(args["rt_buy_price"])
+        buy_rate = float(args["rt_buy_rate"])
+        sell_price = float(args.get("rt_sell_price", buy_price))
+        sell_rate = float(args.get("rt_sell_rate", buy_rate))
+        royalty_pct = float(args.get("rt_royalty", DEFAULT_ROYALTY_PCT.get(category, 0.0)))
+        commission_pct = float(args.get("rt_commission", config.DEFAULT_COMMISSION_PCT))
+    except (KeyError, ValueError):
+        return None
+
+    purchase_totals = compute_purchase_totals(weight_g, purity_pct, buy_price, buy_rate)
+    sale_totals = compute_sale_totals(
+        purchase_totals.fine_oz, sell_price, royalty_pct, commission_pct, sell_rate
+    )
+    profit = compute_cycle_profit(
+        sale_totals, purchase_totals.total_usd, purchase_totals.total_bs, sell_rate
+    )
+    return {
+        "category": category,
+        "weight_g": weight_g,
+        "purity_pct": purity_pct,
+        "buy_price": buy_price,
+        "buy_rate": buy_rate,
+        "sell_price": sell_price,
+        "sell_rate": sell_rate,
+        "royalty_pct": royalty_pct,
+        "commission_pct": commission_pct,
+        "purchase_totals": purchase_totals,
+        "sale_totals": sale_totals,
+        "profit": profit,
+    }
+
+
+def _parse_inventory_sale_calc(args, ledger: Ledger) -> Optional[dict]:
+    """'Sell what I already own, today' simulator -- uses the REAL
+    weighted-average cost basis from recorded purchases in the ledger,
+    compared against a hypothetical today's sale. Nothing is saved."""
+    if "inv_sell_price" not in args:
+        return None
+    try:
+        category = args.get("inv_category", CATEGORY_EXPORT)
+        if category not in CATEGORIES:
+            return None
+        sell_price = float(args["inv_sell_price"])
+        sell_rate = float(args["inv_sell_rate"])
+        royalty_pct = float(args.get("inv_royalty", DEFAULT_ROYALTY_PCT.get(category, 0.0)))
+        commission_pct = float(args.get("inv_commission", config.DEFAULT_COMMISSION_PCT))
+    except (KeyError, ValueError):
+        return None
+
+    available = ledger.inventory_fine_oz(category)
+    try:
+        fine_oz_sold = float(args.get("inv_fine_oz", available))
+    except ValueError:
+        return None
+    if fine_oz_sold <= 0:
+        return None
+
+    avg_usd, avg_bs = ledger.average_cost(category)
+    sale_totals = compute_sale_totals(
+        fine_oz_sold, sell_price, royalty_pct, commission_pct, sell_rate
+    )
+    profit = compute_cycle_profit(
+        sale_totals, fine_oz_sold * avg_usd, fine_oz_sold * avg_bs, sell_rate
+    )
+    return {
+        "category": category,
+        "available_fine_oz": available,
+        "fine_oz_sold": fine_oz_sold,
+        "avg_cost_usd_per_oz": avg_usd,
+        "avg_cost_bs_per_oz": avg_bs,
+        "sell_price": sell_price,
+        "sell_rate": sell_rate,
+        "royalty_pct": royalty_pct,
+        "commission_pct": commission_pct,
+        "sale_totals": sale_totals,
+        "profit": profit,
+        "oversell": fine_oz_sold > available + 1e-9,
+    }
 
 
 @app.route("/price/fetch", methods=["POST"])

@@ -20,7 +20,7 @@ def client(tmp_path, monkeypatch):
 def test_dashboard_loads_with_empty_ledger(client):
     resp = client.get("/")
     assert resp.status_code == 200
-    assert b"Ciclos" in resp.data
+    assert "¿Comprar y vender hoy es rentable?".encode() in resp.data
 
 
 def test_purchase_form_loads(client):
@@ -101,13 +101,96 @@ def test_oversell_is_rejected_via_form(client):
     assert b"cannot sell" in resp.data
 
 
-def test_dashboard_reference_calculator(client, monkeypatch):
-    from datetime import date
-
-    history = webapp.PriceHistory(webapp.config.DATABASE_URL)
-    from datetime import datetime, timezone
-    history.save_quote(date.today(), "netdania", 4670.0, datetime.now(timezone.utc), "raw")
-
-    resp = client.get("/?calc_category=EXPORT&purity=0.95&rate=9.43")
+def test_round_trip_calculator_matches_workbook_profit(client):
+    resp = client.get(
+        "/",
+        query_string={
+            "rt_category": ledger_module.CATEGORY_EXPORT,
+            "rt_weight_g": "2407.391641",
+            "rt_purity": "0.95",
+            "rt_buy_price": "4080",
+            "rt_buy_rate": "10.7",
+            "rt_sell_price": "4060",
+            "rt_sell_rate": "11.7",
+            "rt_royalty": "0.009",
+            "rt_commission": "0.0",
+        },
+    )
     assert resp.status_code == 200
-    assert b"1345.06" in resp.data  # PRECIO GR Bs from the workbook regression numbers
+    assert b"251358.97" in resp.data  # gross profit_bs from the workbook regression numbers
+    assert b"233449.64" in resp.data  # net_profit_bs (after operating cost)
+    assert "Sí, hoy conviene".encode() in resp.data
+
+
+def test_round_trip_calculator_flags_a_loss(client):
+    resp = client.get(
+        "/",
+        query_string={
+            "rt_category": ledger_module.CATEGORY_EXPORT,
+            "rt_weight_g": "100",
+            "rt_purity": "0.95",
+            "rt_buy_price": "4200",
+            "rt_buy_rate": "11.0",
+            "rt_sell_price": "3900",
+            "rt_sell_rate": "10.5",
+            "rt_royalty": "0.009",
+            "rt_commission": "0.0",
+        },
+    )
+    assert resp.status_code == 200
+    assert "No, hoy no conviene".encode() in resp.data
+
+
+def test_inventory_sale_calculator_uses_real_cost_basis(client):
+    client.post(
+        "/purchases/new",
+        data={
+            "purchase_date": "2026-01-01",
+            "category": ledger_module.CATEGORY_EXPORT,
+            "weight_g": "2407.391641",
+            "purity_pct": "0.95",
+            "price_usd_per_oz": "4080",
+            "exchange_rate_bs_per_usd": "10.7",
+            "notes": "",
+        },
+    )
+    resp = client.get(
+        "/",
+        query_string={
+            "inv_category": ledger_module.CATEGORY_EXPORT,
+            "inv_sell_price": "4060",
+            "inv_sell_rate": "11.7",
+            "inv_royalty": "0.009",
+            "inv_commission": "0.0",
+        },
+    )
+    assert resp.status_code == 200
+    assert b"251358.97" in resp.data
+
+
+def test_inventory_sale_calculator_flags_oversell(client):
+    client.post(
+        "/purchases/new",
+        data={
+            "purchase_date": "2026-01-01",
+            "category": ledger_module.CATEGORY_EXPORT,
+            "weight_g": "100",
+            "purity_pct": "0.95",
+            "price_usd_per_oz": "4000",
+            "exchange_rate_bs_per_usd": "10.0",
+            "notes": "",
+        },
+    )
+    resp = client.get(
+        "/",
+        query_string={
+            "inv_category": ledger_module.CATEGORY_EXPORT,
+            "inv_fine_oz": "999",
+            "inv_sell_price": "4000",
+            "inv_sell_rate": "10.0",
+            "inv_royalty": "0.009",
+            "inv_commission": "0.0",
+        },
+    )
+    assert resp.status_code == 200
+    assert "hipotético".encode() in resp.data
