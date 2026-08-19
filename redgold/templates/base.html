@@ -39,6 +39,9 @@
   </style>
   <script>
     var TROY_OUNCE_GRAMS = 31.1035;
+    function formatNumber(n, decimals) {
+      return n.toLocaleString('en-US', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+    }
     // ids: {weight, purity, buyPrice, buyRate, outFineWeight, outFineOz, outTotalUsd, outTotalBs}
     // buyPrice/buyRate/outTotalUsd/outTotalBs are optional -- omit them to
     // only track peso fino / onza fina.
@@ -59,9 +62,9 @@
         var fineGrams = (isNaN(w) || isNaN(p)) ? null : w * p;
         var fineOz = fineGrams === null ? null : fineGrams / TROY_OUNCE_GRAMS;
 
-        outFineWeightEl.textContent = 'Peso fino: ' + (fineGrams === null ? '—' : fineGrams.toFixed(4) + ' gr');
+        outFineWeightEl.textContent = 'Peso fino: ' + (fineGrams === null ? '—' : formatNumber(fineGrams, 4) + ' gr');
         if (outFineOzEl) {
-          outFineOzEl.textContent = 'Onza fina: ' + (fineOz === null ? '—' : fineOz.toFixed(4) + ' oz');
+          outFineOzEl.textContent = 'Onza fina: ' + (fineOz === null ? '—' : formatNumber(fineOz, 4) + ' oz');
         }
 
         if (outTotalUsdEl || outTotalBsEl) {
@@ -69,11 +72,11 @@
           var buyRate = buyRateEl ? parseFloat(buyRateEl.value) : NaN;
           var totalUsd = (fineOz === null || isNaN(buyPrice)) ? null : fineOz * buyPrice;
           var totalBs = (totalUsd === null || isNaN(buyRate)) ? null : totalUsd * buyRate;
-          if (outTotalUsdEl) {
-            outTotalUsdEl.textContent = 'Total en dólares: ' + (totalUsd === null ? '—' : '$' + totalUsd.toFixed(2));
-          }
           if (outTotalBsEl) {
-            outTotalBsEl.textContent = 'Total de compra en Bolivianos: ' + (totalBs === null ? '—' : totalBs.toFixed(2) + ' Bs');
+            outTotalBsEl.textContent = 'Total de compra en Bolivianos: ' + (totalBs === null ? '—' : formatNumber(totalBs, 2) + ' Bs');
+          }
+          if (outTotalUsdEl) {
+            outTotalUsdEl.textContent = 'Total en dólares: ' + (totalUsd === null ? '—' : '$' + formatNumber(totalUsd, 2));
           }
         }
       }

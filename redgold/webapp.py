@@ -123,6 +123,11 @@ def _parse_round_trip_calc(args, latest_price) -> Optional[dict]:
         purity_pct = float(args.get("rt_purity", config.DEFAULT_PURITY_PCT))
         buy_price = float(args["rt_buy_price"])
         buy_rate = float(args["rt_buy_rate"])
+        # TC compra $ físico: the rate used to peg the physical-dollar Bs
+        # cost shown live in the form. Not consumed by compute_purchase_totals
+        # below (that still uses buy_rate) -- kept only so the field survives
+        # a "Calcular" round trip instead of resetting to blank.
+        buy_rate_fisico = float(args.get("rt_buy_rate_fisico", buy_rate))
         sell_price = float(args.get("rt_sell_price", buy_price))
         sell_rate = float(args.get("rt_sell_rate", buy_rate))
         royalty_pct = float(args.get("rt_royalty", DEFAULT_ROYALTY_PCT.get(category, 0.0)))
@@ -143,6 +148,7 @@ def _parse_round_trip_calc(args, latest_price) -> Optional[dict]:
         "purity_pct": purity_pct,
         "buy_price": buy_price,
         "buy_rate": buy_rate,
+        "buy_rate_fisico": buy_rate_fisico,
         "sell_price": sell_price,
         "sell_rate": sell_rate,
         "royalty_pct": royalty_pct,
