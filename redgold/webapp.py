@@ -26,6 +26,7 @@ from redgold.ledger import (
 )
 from redgold.pipeline import DEFAULT_SOURCES, run_daily_update
 from redgold.sources.base import GoldPriceUnavailableError
+from redgold.sources.exchange_rate import ExchangeRateUnavailableError, fetch_official_rate
 from redgold.storage import PriceHistory
 
 app = Flask(__name__)
@@ -48,6 +49,16 @@ def get_ledger() -> Ledger:
 
 def get_history() -> PriceHistory:
     return PriceHistory(config.DATABASE_URL)
+
+
+def get_official_rate():
+    """Best-effort fetch of the BCB's official USD/BOB buying rate, used
+    only to prefill "TC de venta" inputs. Returns None on any failure so
+    callers fall back to letting the user type the rate in by hand."""
+    try:
+        return fetch_official_rate()
+    except ExchangeRateUnavailableError:
+        return None
 
 
 @app.context_processor
@@ -80,12 +91,15 @@ def dashboard():
             "avg_cost_bs_per_oz": avg_bs,
         })
 
+    official_rate = get_official_rate()
+
     round_trip = _parse_round_trip_calc(request.args, latest_price)
     inventory_sale = _parse_inventory_sale_calc(request.args, ledger)
 
     return render_template(
         "dashboard.html",
         latest_price=latest_price,
+        official_rate=official_rate,
         cycles=cycles,
         round_trip=round_trip,
         inventory_sale=inventory_sale,
@@ -282,6 +296,7 @@ def new_sale():
         inventory=inventory,
         default_royalty=DEFAULT_ROYALTY_PCT,
         default_commission=config.DEFAULT_COMMISSION_PCT,
+        official_rate=get_official_rate(),
         today=date.today(),
     )
 

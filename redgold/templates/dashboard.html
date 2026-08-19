@@ -15,6 +15,19 @@
   </form>
 </div>
 
+<div class="card">
+  <div class="stat-label">TC de venta — compra oficial BCB (Bs/$)</div>
+  {% if official_rate %}
+    <div class="stat">{{ "%.2f"|format(official_rate.compra) }} Bs/$
+      <span class="muted">(vigente {{ official_rate.fecha_vigencia }})</span></div>
+    <p class="muted" style="margin:0.3rem 0 0">
+      Precio al que el BCB compra dólares — se usa para prellenar el TC de venta abajo, edítalo si tienes uno distinto.
+    </p>
+  {% else %}
+    <div class="stat muted">No se pudo obtener el TC oficial — ingrésalo manualmente abajo</div>
+  {% endif %}
+</div>
+
 <h2>¿Comprar y vender hoy es rentable? (ida y vuelta)</h2>
 <p class="muted">Simula comprar oro hoy y venderlo hoy mismo. No guarda nada — solo referencia.</p>
 <div class="card">
@@ -46,9 +59,9 @@
     <input id="rt_sell_price" name="rt_sell_price" type="number" step="0.01"
            value="{{ round_trip.sell_price if round_trip else (latest_price.price_usd_per_oz if latest_price else '') }}">
 
-    <label for="rt_sell_rate">TC de venta (Bs/$)</label>
+    <label for="rt_sell_rate">TC de venta — compra oficial BCB (Bs/$)</label>
     <input id="rt_sell_rate" name="rt_sell_rate" type="number" step="0.0001"
-           value="{{ round_trip.sell_rate if round_trip else '' }}">
+           value="{{ round_trip.sell_rate if round_trip else (official_rate.compra if official_rate else '') }}">
 
     <label for="rt_royalty">Regalías (0-1)</label>
     <input id="rt_royalty" name="rt_royalty" type="number" step="0.0001"
@@ -104,9 +117,9 @@
     <input id="inv_sell_price" name="inv_sell_price" type="number" step="0.01" required
            value="{{ inventory_sale.sell_price if inventory_sale else (latest_price.price_usd_per_oz if latest_price else '') }}">
 
-    <label for="inv_sell_rate">TC de venta (Bs/$)</label>
+    <label for="inv_sell_rate">TC de venta — compra oficial BCB (Bs/$)</label>
     <input id="inv_sell_rate" name="inv_sell_rate" type="number" step="0.0001" required
-           value="{{ inventory_sale.sell_rate if inventory_sale else '' }}">
+           value="{{ inventory_sale.sell_rate if inventory_sale else (official_rate.compra if official_rate else '') }}">
 
     <label for="inv_royalty">Regalías (0-1)</label>
     <input id="inv_royalty" name="inv_royalty" type="number" step="0.0001"

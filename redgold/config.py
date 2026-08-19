@@ -70,6 +70,13 @@ NETDANIA_SOURCE = SourceConfig(
     selector=os.getenv("REDGOLD_NETDANIA_SELECTOR", "table"),
 )
 
+# Official USD/BOB rate, republished from the BCB by CUCU's API (the BCB's
+# own cotizaciones_tc page renders its table via JS, so it can't be scraped
+# with a plain HTTP GET). Used to prefill "TC de venta" -- when this
+# business sells USD (from a gold sale) back into Bs, it sells to a bank at
+# roughly the BCB's official buying ("compra") rate.
+CUCU_TC_URL = os.getenv("REDGOLD_CUCU_TC_URL", "https://apibcb.cucu.bo/api/v1/tc/oficial")
+
 # Order matters: the pipeline tries sources in this order and falls back
 # to the next one if a fetch fails or returns an implausible value.
 SOURCE_PRIORITY = [BCB_SOURCE, NETDANIA_SOURCE]
