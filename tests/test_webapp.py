@@ -117,8 +117,8 @@ def test_round_trip_calculator_matches_workbook_profit(client):
         },
     )
     assert resp.status_code == 200
-    assert b"251358.97" in resp.data  # gross profit_bs from the workbook regression numbers
-    assert b"233449.64" in resp.data  # net_profit_bs (after operating cost)
+    assert b"251,358.97" in resp.data  # gross profit_bs from the workbook regression numbers
+    assert b"233,449.64" in resp.data  # net_profit_bs (after operating cost)
     assert "Sí, hoy conviene".encode() in resp.data
 
 
@@ -165,7 +165,7 @@ def test_inventory_sale_calculator_uses_real_cost_basis(client):
         },
     )
     assert resp.status_code == 200
-    assert b"251358.97" in resp.data
+    assert b"251,358.97" in resp.data
 
 
 def test_inventory_sale_calculator_flags_oversell(client):

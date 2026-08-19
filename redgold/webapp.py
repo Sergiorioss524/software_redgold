@@ -43,6 +43,12 @@ DEFAULT_ROYALTY_PCT = {
 }
 
 
+@app.template_filter("money")
+def format_money(value, decimals=2):
+    """Thousands-separated number, e.g. 50040.6912 -> '50,040.69'."""
+    return f"{value:,.{decimals}f}"
+
+
 def get_ledger() -> Ledger:
     return Ledger(config.DATABASE_URL)
 
