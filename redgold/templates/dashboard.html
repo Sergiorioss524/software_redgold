@@ -112,6 +112,7 @@
   </script>
 
   {% if round_trip %}
+    <div class="table-scroll">
     <table style="margin-top:1rem">
       <tr><td>Costo de compra</td><td>{{ round_trip.purchase_totals.total_bs|money }} Bs &middot; {{ round_trip.purchase_totals.total_usd|money }} USD</td><td class="formula">Bs: oz fina × bolsa compra × TC minero · USD: oz fina × bolsa compra</td></tr>
       <tr><td>Ingreso de venta</td><td>{{ round_trip.sale_totals.total_bs|money }} Bs &middot; {{ round_trip.sale_totals.total_final_usd|money }} USD</td><td class="formula">USD: oz fina × bolsa venta × (1 − comisión) · Bs: USD × TC venta</td></tr>
@@ -127,6 +128,7 @@
       </tr>
       <tr><td>Utilidad directa en USD</td><td>{{ round_trip.profit.profit_usd_direct|money }}</td><td class="formula">Ingreso de venta (USD) − Costo de compra (USD)</td></tr>
     </table>
+    </div>
     {% if round_trip.profit.net_profit_bs >= 0 %}
       <p class="positive" style="font-weight:700">Sí, hoy conviene según estos números.</p>
     {% else %}

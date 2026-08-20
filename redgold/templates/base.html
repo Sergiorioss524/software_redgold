@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}RedGold{% endblock %}</title>
   <style>
     :root {
@@ -91,6 +92,27 @@
     .formula { color: #9a917d; font-size: 0.82rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     td.formula { white-space: nowrap; }
     .stat-label .formula, .muted .formula { margin-left: 0.5rem; }
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+    /* Phones: reclaim edge padding, drop the formula column so the numbers
+       stay readable without horizontal scrolling. */
+    @media (max-width: 600px) {
+      body { font-size: 16px; padding: 1.25rem 1rem 3rem; }
+      h1 { font-size: 1.6rem; margin-bottom: 1.1rem; }
+      h2 { font-size: 1.2rem; margin: 2rem 0 0.4rem; }
+      .card { padding: 1.1rem 1.1rem; border-radius: 10px; }
+      .stat { font-size: 1.55rem; }
+      form.stack input, form.stack select { max-width: none; font-size: 16px; }
+      td.formula, .formula { display: none; }
+      th, td { padding: 0.55rem 0.6rem; font-size: 0.95rem; }
+      button { width: 100%; padding: 0.85rem 1.4rem; }
+    }
+
+    /* iPads / small laptops: a bit more breathing room than phones, but
+       still full width instead of the desktop max-width. */
+    @media (min-width: 601px) and (max-width: 1024px) {
+      body { max-width: 100%; padding: 2rem 2.5rem 4rem; }
+    }
   </style>
   <script>
     var TROY_OUNCE_GRAMS = 31.1035;
