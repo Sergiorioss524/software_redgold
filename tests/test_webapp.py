@@ -59,3 +59,21 @@ def test_round_trip_calculator_flags_a_loss(client):
     )
     assert resp.status_code == 200
     assert "No, hoy no conviene".encode() in resp.data
+
+
+def test_mercado_interno_calculator_computes_spread(client):
+    resp = client.get(
+        "/",
+        query_string={
+            "mi_weight_g": "100",
+            "mi_purity": "0.95",
+            "mi_price": "4500",
+            "mi_tc_compra": "10.9",
+            "mi_tc_venta": "11.0",
+        },
+    )
+    assert resp.status_code == 200
+    assert b"149,814.33" in resp.data  # total_compra_bs
+    assert b"151,188.77" in resp.data  # total_venta_bs
+    assert b"1,374.44" in resp.data  # diferencia_bs
+    assert "Sí, hoy conviene".encode() in resp.data

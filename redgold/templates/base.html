@@ -28,13 +28,24 @@
       color: var(--ink);
       background: var(--paper);
     }
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem 1.5rem;
+      margin-bottom: 1.5rem;
+    }
     h1 {
       font-size: 2rem;
       font-weight: 800;
       letter-spacing: -0.01em;
-      margin: 0 0 1.5rem;
+      margin: 0;
       color: var(--gold-dark);
     }
+    .nav-links { display: flex; gap: 1.25rem; }
+    .nav-links a { color: var(--gold); font-weight: 700; text-decoration: none; font-size: 0.95rem; }
+    .nav-links a:hover { color: var(--gold-dark); text-decoration: underline; }
     h2 { font-size: 1.4rem; font-weight: 700; margin: 2.5rem 0 0.4rem; }
     table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; background: var(--card); }
     th, td { text-align: left; padding: 0.65rem 0.85rem; border-bottom: 1px solid #ece5d3; font-size: 1rem; }
@@ -176,7 +187,13 @@
   </script>
 </head>
 <body>
-  <h1>RedGold</h1>
+  <div class="topbar">
+    <h1>RedGold</h1>
+    <nav class="nav-links">
+      <a href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('gold_chart') }}" target="_blank" rel="noopener">Gráfico oro/USD en vivo ↗</a>
+    </nav>
+  </div>
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
       <div class="flash {{ category }}">{{ message }}</div>

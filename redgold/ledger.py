@@ -132,3 +132,35 @@ def compute_affordable_grams(net_profit_bs: float, price_per_gram_bs: float) -> 
     if price_per_gram_bs <= 0:
         return 0.0
     return net_profit_bs / price_per_gram_bs
+
+
+@dataclass(frozen=True)
+class MercadoInternoSpread:
+    fine_weight_g: float
+    fine_oz: float
+    value_usd: float
+    total_compra_bs: float
+    total_venta_bs: float
+    diferencia_bs: float
+
+
+def compute_mercado_interno_spread(
+    weight_g: float,
+    purity_pct: float,
+    price_usd_per_oz: float,
+    tc_minero_compra: float,
+    tc_minero_venta: float,
+) -> MercadoInternoSpread:
+    """"Venta a mercado interno": the same gold at the same market price on
+    both sides -- the only thing that differs is which TC minero (both
+    entered by hand) converts that USD value to Bs, so the profit is just
+    the spread between the two rates."""
+    fine_weight_g = weight_g * purity_pct
+    fine_oz = fine_weight_g / config.TROY_OUNCE_GRAMS
+    value_usd = fine_oz * price_usd_per_oz
+    total_compra_bs = value_usd * tc_minero_compra
+    total_venta_bs = value_usd * tc_minero_venta
+    diferencia_bs = total_venta_bs - total_compra_bs
+    return MercadoInternoSpread(
+        fine_weight_g, fine_oz, value_usd, total_compra_bs, total_venta_bs, diferencia_bs
+    )

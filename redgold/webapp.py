@@ -19,6 +19,7 @@ from redgold.ledger import (
     CATEGORY_BCB,
     CATEGORY_EXPORT,
     compute_cycle_profit,
+    compute_mercado_interno_spread,
     compute_purchase_totals,
     compute_sale_totals,
 )
@@ -84,6 +85,8 @@ def dashboard():
             latest_price = quote
             break
 
+    netdania_price = history.get_quote(today, "netdania")
+
     official_rate = get_official_rate()
 
     bcb_gold = get_bcb_gold_quote()
@@ -98,43 +101,50 @@ def dashboard():
     if official_rate is not None:
         tc_minero = round(official_rate.compra * (1 - config.DEFAULT_ROYALTY_PCT_BCB), 4)
 
-    round_trip = _parse_round_trip_calc(request.args, latest_price)
+    round_trip = _parse_round_trip_calc(request.args, "rt", latest_price)
+    mercado_interno = _parse_mercado_interno_calc(request.args, netdania_price)
 
     return render_template(
         "dashboard.html",
         latest_price=latest_price,
+        netdania_price=netdania_price,
         official_rate=official_rate,
         bcb_gold=bcb_gold,
         bcb_gold_price_usd=bcb_gold_price_usd,
         tc_minero=tc_minero,
         round_trip=round_trip,
+        mercado_interno=mercado_interno,
         default_purity=config.DEFAULT_PURITY_PCT,
         default_commission=config.DEFAULT_COMMISSION_PCT,
         today=today,
     )
 
 
-def _parse_round_trip_calc(args, latest_price) -> Optional[dict]:
+def _parse_round_trip_calc(args, prefix, latest_price) -> Optional[dict]:
     """'Buy today, sell today' simulator -- pure what-if, never touches the
     ledger. Answers "if I bought and flipped this right now, what would I
     make," using compute_purchase_totals -> compute_sale_totals ->
-    compute_cycle_profit exactly as the ledger does for a real trade."""
-    if "rt_weight_g" not in args:
+    compute_cycle_profit exactly as the ledger does for a real trade.
+
+    `prefix` namespaces the query args ("rt" for the BCB round trip, "mi"
+    for mercado interno) so both calculators can be parsed independently
+    off the same request."""
+    if f"{prefix}_weight_g" not in args:
         return None
     try:
-        category = args.get("rt_category", CATEGORY_EXPORT)
-        weight_g = float(args["rt_weight_g"])
-        purity_pct = float(args.get("rt_purity", config.DEFAULT_PURITY_PCT))
-        buy_price = float(args["rt_buy_price"])
-        buy_rate = float(args["rt_buy_rate"])
+        category = args.get(f"{prefix}_category", CATEGORY_EXPORT)
+        weight_g = float(args[f"{prefix}_weight_g"])
+        purity_pct = float(args.get(f"{prefix}_purity", config.DEFAULT_PURITY_PCT))
+        buy_price = float(args[f"{prefix}_buy_price"])
+        buy_rate = float(args[f"{prefix}_buy_rate"])
         # TC compra $ físico: the rate used to peg the physical-dollar Bs
         # cost shown live in the form. Not consumed by compute_purchase_totals
         # below (that still uses buy_rate) -- kept only so the field survives
         # a "Calcular" round trip instead of resetting to blank.
-        buy_rate_fisico = float(args.get("rt_buy_rate_fisico", buy_rate))
-        sell_price = float(args.get("rt_sell_price", buy_price))
-        sell_rate = float(args.get("rt_sell_rate", buy_rate))
-        commission_pct = float(args.get("rt_commission", config.DEFAULT_COMMISSION_PCT))
+        buy_rate_fisico = float(args.get(f"{prefix}_buy_rate_fisico", buy_rate))
+        sell_price = float(args.get(f"{prefix}_sell_price", buy_price))
+        sell_rate = float(args.get(f"{prefix}_sell_rate", buy_rate))
+        commission_pct = float(args.get(f"{prefix}_commission", config.DEFAULT_COMMISSION_PCT))
     except (KeyError, ValueError):
         return None
 
@@ -159,6 +169,38 @@ def _parse_round_trip_calc(args, latest_price) -> Optional[dict]:
         "sale_totals": sale_totals,
         "profit": profit,
     }
+
+
+def _parse_mercado_interno_calc(args, netdania_price) -> Optional[dict]:
+    """"Venta a mercado interno": a much simpler what-if than the round-trip
+    calculators -- one market price (from Netdania) on both sides, and two
+    manually-entered TC minero rates (compra/venta). The profit is just the
+    Bs spread between those two rates on the same USD value."""
+    if "mi_weight_g" not in args:
+        return None
+    try:
+        weight_g = float(args["mi_weight_g"])
+        purity_pct = float(args.get("mi_purity", config.DEFAULT_PURITY_PCT))
+        price = float(args["mi_price"])
+        tc_compra = float(args["mi_tc_compra"])
+        tc_venta = float(args["mi_tc_venta"])
+    except (KeyError, ValueError):
+        return None
+
+    spread = compute_mercado_interno_spread(weight_g, purity_pct, price, tc_compra, tc_venta)
+    return {
+        "weight_g": weight_g,
+        "purity_pct": purity_pct,
+        "price": price,
+        "tc_compra": tc_compra,
+        "tc_venta": tc_venta,
+        "spread": spread,
+    }
+
+
+@app.route("/grafico")
+def gold_chart():
+    return render_template("chart.html")
 
 
 @app.route("/price/fetch", methods=["POST"])

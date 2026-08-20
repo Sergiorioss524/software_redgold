@@ -1,5 +1,102 @@
 {% extends "base.html" %}
 {% block title %}¿Es rentable hoy? — RedGold{% endblock %}
+
+{% macro round_trip_calculator(prefix, calc, heading, description,
+     buy_rate_default, buy_rate_note, buy_rate_formula,
+     sell_price_default, sell_price_note, sell_price_formula) %}
+<h2>{{ heading }}</h2>
+<p class="muted">{{ description }}</p>
+<div class="card">
+  <form class="stack" method="get" action="{{ url_for('dashboard') }}">
+    <label for="{{ prefix }}_category">Ciclo</label>
+    <select id="{{ prefix }}_category" name="{{ prefix }}_category">
+      {% for cat in categories %}
+        <option value="{{ cat }}" {{ 'selected' if calc and calc.category == cat }}>{{ category_labels[cat] }}</option>
+      {% endfor %}
+    </select>
+
+    <label for="{{ prefix }}_weight_g">Peso a comprar (gr)</label>
+    <input id="{{ prefix }}_weight_g" name="{{ prefix }}_weight_g" type="number" step="0.000001" required
+           value="{{ calc.weight_g if calc else '' }}">
+
+    <label for="{{ prefix }}_purity">Ley (0-1)</label>
+    <input id="{{ prefix }}_purity" name="{{ prefix }}_purity" type="number" step="0.0001"
+           value="{{ calc.purity_pct if calc else default_purity }}">
+    <div class="muted" id="{{ prefix }}_fine_weight" style="margin:0.2rem 0">Peso fino: — <span class="formula">(peso × ley)</span></div>
+    <div class="muted" id="{{ prefix }}_fine_oz" style="margin:0.2rem 0 0.4rem">Onza fina: — <span class="formula">(peso fino ÷ 31.1035)</span></div>
+
+    <label for="{{ prefix }}_buy_price">Bolsa de compra ($/Oz)</label>
+    <input id="{{ prefix }}_buy_price" name="{{ prefix }}_buy_price" type="number" step="0.01" required
+           value="{{ calc.buy_price if calc else (latest_price.price_usd_per_oz if latest_price else '') }}">
+
+    <label for="{{ prefix }}_buy_rate">Tipo de cambio minero (Bs/$)</label>
+    <input id="{{ prefix }}_buy_rate" name="{{ prefix }}_buy_rate" type="number" step="0.0001" required
+           value="{{ calc.buy_rate if calc else (buy_rate_default if buy_rate_default else '') }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      {% if buy_rate_default %}{{ buy_rate_note }}{% endif %}
+      <span class="formula">({{ buy_rate_formula }})</span>
+    </div>
+
+    <label for="{{ prefix }}_buy_rate_fisico">TC compra $ físico (Bs/$)</label>
+    <input id="{{ prefix }}_buy_rate_fisico" name="{{ prefix }}_buy_rate_fisico" type="number" step="0.0001" required
+           value="{{ calc.buy_rate_fisico if calc else '' }}">
+    <div class="muted" id="{{ prefix }}_total_bs" style="margin:0.2rem 0">Total de compra en Bolivianos: — <span class="formula">(onza fina × bolsa de compra × TC minero)</span></div>
+    <div class="muted" id="{{ prefix }}_total_usd" style="margin:0.2rem 0 0.4rem">Total en dólares: — <span class="formula">(total Bs ÷ TC compra físico)</span></div>
+
+    <label for="{{ prefix }}_sell_price">Bolsa de venta ($/Oz)</label>
+    <input id="{{ prefix }}_sell_price" name="{{ prefix }}_sell_price" type="number" step="0.01"
+           value="{{ calc.sell_price if calc else (sell_price_default if sell_price_default else '') }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      {% if sell_price_note %}{{ sell_price_note }}{% endif %}
+      <span class="formula">({{ sell_price_formula }})</span>
+    </div>
+
+    <label for="{{ prefix }}_sell_rate">TC de venta — compra oficial BCB (Bs/$)</label>
+    <input id="{{ prefix }}_sell_rate" name="{{ prefix }}_sell_rate" type="number" step="0.0001"
+           value="{{ calc.sell_rate if calc else (official_rate.compra if official_rate else '') }}">
+
+    <label for="{{ prefix }}_commission">Comisión (0-1)</label>
+    <input id="{{ prefix }}_commission" name="{{ prefix }}_commission" type="number" step="0.0001"
+           value="{{ calc.commission_pct if calc else default_commission }}">
+
+    <button type="submit" style="margin-top:0.8rem">Calcular</button>
+  </form>
+  <script>
+    bindPurchaseCalc({
+      weight: '{{ prefix }}_weight_g', purity: '{{ prefix }}_purity',
+      buyPrice: '{{ prefix }}_buy_price', buyRate: '{{ prefix }}_buy_rate', rateFisico: '{{ prefix }}_buy_rate_fisico',
+      outFineWeight: '{{ prefix }}_fine_weight', outFineOz: '{{ prefix }}_fine_oz',
+      outTotalUsd: '{{ prefix }}_total_usd', outTotalBs: '{{ prefix }}_total_bs'
+    });
+  </script>
+
+  {% if calc %}
+    <div class="table-scroll">
+    <table style="margin-top:1rem">
+      <tr><td>Costo de compra</td><td>{{ calc.purchase_totals.total_bs|money }} Bs &middot; {{ calc.purchase_totals.total_usd|money }} USD</td><td class="formula">Bs: oz fina × bolsa compra × TC minero · USD: oz fina × bolsa compra</td></tr>
+      <tr><td>Ingreso de venta</td><td>{{ calc.sale_totals.total_bs|money }} Bs &middot; {{ calc.sale_totals.total_final_usd|money }} USD</td><td class="formula">USD: oz fina × bolsa venta × (1 − comisión) · Bs: USD × TC venta</td></tr>
+      <tr><td>Utilidad bruta (antes de costos operativos)</td><td>{{ calc.profit.profit_bs|money }} Bs</td><td class="formula">Ingreso de venta (Bs) − Costo de compra (Bs)</td></tr>
+      <tr><td>Costos operativos</td><td>{{ calc.profit.operating_cost_bs|money }} Bs</td><td class="formula">Utilidad bruta × % costos operativos</td></tr>
+      <tr>
+        <td><strong>Utilidad neta</strong></td>
+        <td class="{{ 'positive' if calc.profit.net_profit_bs >= 0 else 'negative' }}">
+          <strong>{{ calc.profit.net_profit_bs|money }} Bs</strong>
+          <span class="muted">(≈ {{ calc.profit.net_profit_usd_equiv|money }} USD equiv.)</span>
+        </td>
+        <td class="formula">Utilidad bruta − Costos operativos · USD equiv.: ÷ TC venta</td>
+      </tr>
+      <tr><td>Utilidad directa en USD</td><td>{{ calc.profit.profit_usd_direct|money }}</td><td class="formula">Ingreso de venta (USD) − Costo de compra (USD)</td></tr>
+    </table>
+    </div>
+    {% if calc.profit.net_profit_bs >= 0 %}
+      <p class="positive" style="font-weight:700">Sí, hoy conviene según estos números.</p>
+    {% else %}
+      <p class="negative" style="font-weight:700">No, hoy no conviene según estos números.</p>
+    {% endif %}
+  {% endif %}
+</div>
+{% endmacro %}
+
 {% block content %}
 
 <div class="card">
@@ -37,7 +134,7 @@
       {% endif %}
     </div>
     <p class="muted" style="margin:0.3rem 0 0">
-      Cotización vigente {{ bcb_gold.quote_date }} — se usa para prellenar la bolsa de venta abajo, edítala si tienes una distinta.
+      Cotización vigente {{ bcb_gold.quote_date }} — se usa para prellenar la bolsa de venta de la calculadora del BCB, edítala si tienes una distinta.
       <span class="formula">(Bs/oz ÷ TC oficial compra)</span>
     </p>
   {% else %}
@@ -45,91 +142,66 @@
   {% endif %}
 </div>
 
-<h2>¿Comprar y vender al BCB hoy es rentable? (ida y vuelta)</h2>
-<p class="muted">Simula comprar oro hoy y venderlo al BCB hoy mismo. No guarda nada — solo referencia.</p>
+{{ round_trip_calculator('rt', round_trip,
+     '¿Comprar y vender al BCB hoy es rentable? (ida y vuelta)',
+     'Simula comprar oro hoy y venderlo al BCB hoy mismo. No guarda nada — solo referencia.',
+     tc_minero, 'Prellenado con TC oficial − regalías BCB (4.8%).', 'TC oficial compra × (1 − regalías BCB)',
+     bcb_gold_price_usd, ('Prellenado con la cotización de oro del BCB (' ~ bcb_gold.quote_date ~ ').' if bcb_gold_price_usd else ''), 'cotización oro BCB en Bs/oz ÷ TC oficial compra'
+) }}
+
+<h2>Venta a mercado interno</h2>
+<p class="muted">Mismo oro, misma bolsa (Netdania) en ambos lados — la diferencia viene solo del TC minero de compra y de venta, que pones tú. No guarda nada — solo referencia.</p>
 <div class="card">
   <form class="stack" method="get" action="{{ url_for('dashboard') }}">
-    <label for="rt_category">Ciclo</label>
-    <select id="rt_category" name="rt_category">
-      {% for cat in categories %}
-        <option value="{{ cat }}" {{ 'selected' if round_trip and round_trip.category == cat }}>{{ category_labels[cat] }}</option>
-      {% endfor %}
-    </select>
+    <label for="mi_weight_g">Peso (gr)</label>
+    <input id="mi_weight_g" name="mi_weight_g" type="number" step="0.000001" required
+           value="{{ mercado_interno.weight_g if mercado_interno else '' }}">
 
-    <label for="rt_weight_g">Peso a comprar (gr)</label>
-    <input id="rt_weight_g" name="rt_weight_g" type="number" step="0.000001" required
-           value="{{ round_trip.weight_g if round_trip else '' }}">
+    <label for="mi_purity">Ley (0-1)</label>
+    <input id="mi_purity" name="mi_purity" type="number" step="0.0001"
+           value="{{ mercado_interno.purity_pct if mercado_interno else default_purity }}">
+    <div class="muted" id="mi_fine_weight" style="margin:0.2rem 0">Peso fino: — <span class="formula">(peso × ley)</span></div>
+    <div class="muted" id="mi_fine_oz" style="margin:0.2rem 0 0.4rem">Onza fina: — <span class="formula">(peso fino ÷ 31.1035)</span></div>
 
-    <label for="rt_purity">Ley (0-1)</label>
-    <input id="rt_purity" name="rt_purity" type="number" step="0.0001"
-           value="{{ round_trip.purity_pct if round_trip else default_purity }}">
-    <div class="muted" id="rt_fine_weight" style="margin:0.2rem 0">Peso fino: — <span class="formula">(peso × ley)</span></div>
-    <div class="muted" id="rt_fine_oz" style="margin:0.2rem 0 0.4rem">Onza fina: — <span class="formula">(peso fino ÷ 31.1035)</span></div>
-
-    <label for="rt_buy_price">Bolsa de compra ($/Oz)</label>
-    <input id="rt_buy_price" name="rt_buy_price" type="number" step="0.01" required
-           value="{{ round_trip.buy_price if round_trip else (latest_price.price_usd_per_oz if latest_price else '') }}">
-
-    <label for="rt_buy_rate">Tipo de cambio minero (Bs/$)</label>
-    <input id="rt_buy_rate" name="rt_buy_rate" type="number" step="0.0001" required
-           value="{{ round_trip.buy_rate if round_trip else (tc_minero if tc_minero else '') }}">
+    <label for="mi_price">Bolsa ($/Oz)</label>
+    <input id="mi_price" name="mi_price" type="number" step="0.01" required
+           value="{{ mercado_interno.price if mercado_interno else (netdania_price.price_usd_per_oz if netdania_price else '') }}">
     <div class="muted" style="margin:0.2rem 0 0.4rem">
-      {% if tc_minero %}Prellenado con TC oficial − regalías BCB (4.8%).{% endif %}
-      <span class="formula">(TC oficial compra × (1 − regalías BCB))</span>
+      {% if netdania_price %}Prellenado con la cotización de Netdania.{% endif %}
     </div>
 
-    <label for="rt_buy_rate_fisico">TC compra $ físico (Bs/$)</label>
-    <input id="rt_buy_rate_fisico" name="rt_buy_rate_fisico" type="number" step="0.0001" required
-           value="{{ round_trip.buy_rate_fisico if round_trip else '' }}">
-    <div class="muted" id="rt_total_bs" style="margin:0.2rem 0">Total de compra en Bolivianos: — <span class="formula">(onza fina × bolsa de compra × TC minero)</span></div>
-    <div class="muted" id="rt_total_usd" style="margin:0.2rem 0 0.4rem">Total en dólares: — <span class="formula">(total Bs ÷ TC compra físico)</span></div>
+    <label for="mi_tc_compra">TC minero compra (Bs/$)</label>
+    <input id="mi_tc_compra" name="mi_tc_compra" type="number" step="0.0001" required
+           value="{{ mercado_interno.tc_compra if mercado_interno else '' }}">
 
-    <label for="rt_sell_price">Bolsa de venta ($/Oz)</label>
-    <input id="rt_sell_price" name="rt_sell_price" type="number" step="0.01"
-           value="{{ round_trip.sell_price if round_trip else (bcb_gold_price_usd if bcb_gold_price_usd else (latest_price.price_usd_per_oz if latest_price else '')) }}">
-    <div class="muted" style="margin:0.2rem 0 0.4rem">
-      {% if bcb_gold_price_usd %}Prellenado con la cotización de oro del BCB ({{ bcb_gold.quote_date }}).{% endif %}
-      <span class="formula">(cotización oro BCB en Bs/oz ÷ TC oficial compra)</span>
-    </div>
-
-    <label for="rt_sell_rate">TC de venta — compra oficial BCB (Bs/$)</label>
-    <input id="rt_sell_rate" name="rt_sell_rate" type="number" step="0.0001"
-           value="{{ round_trip.sell_rate if round_trip else (official_rate.compra if official_rate else '') }}">
-
-    <label for="rt_commission">Comisión (0-1)</label>
-    <input id="rt_commission" name="rt_commission" type="number" step="0.0001"
-           value="{{ round_trip.commission_pct if round_trip else default_commission }}">
+    <label for="mi_tc_venta">TC minero venta (Bs/$)</label>
+    <input id="mi_tc_venta" name="mi_tc_venta" type="number" step="0.0001" required
+           value="{{ mercado_interno.tc_venta if mercado_interno else '' }}">
 
     <button type="submit" style="margin-top:0.8rem">Calcular</button>
   </form>
   <script>
     bindPurchaseCalc({
-      weight: 'rt_weight_g', purity: 'rt_purity',
-      buyPrice: 'rt_buy_price', buyRate: 'rt_buy_rate', rateFisico: 'rt_buy_rate_fisico',
-      outFineWeight: 'rt_fine_weight', outFineOz: 'rt_fine_oz',
-      outTotalUsd: 'rt_total_usd', outTotalBs: 'rt_total_bs'
+      weight: 'mi_weight_g', purity: 'mi_purity',
+      outFineWeight: 'mi_fine_weight', outFineOz: 'mi_fine_oz'
     });
   </script>
 
-  {% if round_trip %}
+  {% if mercado_interno %}
     <div class="table-scroll">
     <table style="margin-top:1rem">
-      <tr><td>Costo de compra</td><td>{{ round_trip.purchase_totals.total_bs|money }} Bs &middot; {{ round_trip.purchase_totals.total_usd|money }} USD</td><td class="formula">Bs: oz fina × bolsa compra × TC minero · USD: oz fina × bolsa compra</td></tr>
-      <tr><td>Ingreso de venta</td><td>{{ round_trip.sale_totals.total_bs|money }} Bs &middot; {{ round_trip.sale_totals.total_final_usd|money }} USD</td><td class="formula">USD: oz fina × bolsa venta × (1 − comisión) · Bs: USD × TC venta</td></tr>
-      <tr><td>Utilidad bruta (antes de costos operativos)</td><td>{{ round_trip.profit.profit_bs|money }} Bs</td><td class="formula">Ingreso de venta (Bs) − Costo de compra (Bs)</td></tr>
-      <tr><td>Costos operativos</td><td>{{ round_trip.profit.operating_cost_bs|money }} Bs</td><td class="formula">Utilidad bruta × % costos operativos</td></tr>
+      <tr><td>Total compra</td><td>{{ mercado_interno.spread.total_compra_bs|money }} Bs</td><td class="formula">oz fina × bolsa × TC minero compra</td></tr>
+      <tr><td>Total venta</td><td>{{ mercado_interno.spread.total_venta_bs|money }} Bs</td><td class="formula">oz fina × bolsa × TC minero venta</td></tr>
       <tr>
-        <td><strong>Utilidad neta</strong></td>
-        <td class="{{ 'positive' if round_trip.profit.net_profit_bs >= 0 else 'negative' }}">
-          <strong>{{ round_trip.profit.net_profit_bs|money }} Bs</strong>
-          <span class="muted">(≈ {{ round_trip.profit.net_profit_usd_equiv|money }} USD equiv.)</span>
+        <td><strong>Diferencia</strong></td>
+        <td class="{{ 'positive' if mercado_interno.spread.diferencia_bs >= 0 else 'negative' }}">
+          <strong>{{ mercado_interno.spread.diferencia_bs|money }} Bs</strong>
         </td>
-        <td class="formula">Utilidad bruta − Costos operativos · USD equiv.: ÷ TC venta</td>
+        <td class="formula">Total venta − Total compra</td>
       </tr>
-      <tr><td>Utilidad directa en USD</td><td>{{ round_trip.profit.profit_usd_direct|money }}</td><td class="formula">Ingreso de venta (USD) − Costo de compra (USD)</td></tr>
     </table>
     </div>
-    {% if round_trip.profit.net_profit_bs >= 0 %}
+    {% if mercado_interno.spread.diferencia_bs >= 0 %}
       <p class="positive" style="font-weight:700">Sí, hoy conviene según estos números.</p>
     {% else %}
       <p class="negative" style="font-weight:700">No, hoy no conviene según estos números.</p>

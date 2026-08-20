@@ -86,3 +86,17 @@ def test_bcb_cycle_without_royalty_deduction():
     assert profit.profit_bs == pytest.approx(3618848.361116916)
     assert profit.operating_cost_bs == pytest.approx(257842.94572958024)
     assert profit.net_profit_bs == pytest.approx(3361005.4153873357)
+
+
+def test_mercado_interno_spread_is_value_times_rate_difference():
+    spread = ledger.compute_mercado_interno_spread(
+        weight_g=100, purity_pct=0.95, price_usd_per_oz=4500,
+        tc_minero_compra=10.9, tc_minero_venta=11.0,
+    )
+    assert spread.fine_oz == pytest.approx(3.0543186458115645)
+    assert spread.value_usd == pytest.approx(13744.43390615204)
+    assert spread.total_compra_bs == pytest.approx(149814.32957705724)
+    assert spread.total_venta_bs == pytest.approx(151188.77296767244)
+    # Same USD value both sides, so the difference is just value_usd x (venta - compra).
+    assert spread.diferencia_bs == pytest.approx(spread.value_usd * 0.1)
+    assert spread.diferencia_bs == pytest.approx(1374.4433906151971)
