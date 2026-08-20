@@ -3,7 +3,9 @@
 
 {% macro round_trip_calculator(prefix, calc, heading, description,
      buy_rate_default, buy_rate_note, buy_rate_formula,
-     sell_price_default, sell_price_note, sell_price_formula) %}
+     sell_price_default, sell_price_note, sell_price_formula,
+     kibo_label=none, discount_label=none, discount_default=none,
+     show_sell_rate=true) %}
 <h2>{{ heading }}</h2>
 <p class="muted">{{ description }}</p>
 <div class="card">
@@ -29,6 +31,19 @@
     <input id="{{ prefix }}_buy_price" name="{{ prefix }}_buy_price" type="number" step="0.01" required
            value="{{ calc.buy_price if calc else (latest_price.price_usd_per_oz if latest_price else '') }}">
 
+    {% if kibo_label %}
+    <label for="{{ prefix }}_tc_kibo">{{ kibo_label }}</label>
+    <input id="{{ prefix }}_tc_kibo" name="{{ prefix }}_tc_kibo" type="number" step="0.0001"
+           value="{{ calc.tc_kibo if calc and calc.tc_kibo is not none else '' }}">
+
+    <label for="{{ prefix }}_discount">{{ discount_label }}</label>
+    <input id="{{ prefix }}_discount" name="{{ prefix }}_discount" type="number" step="0.0001"
+           value="{{ calc.discount_pct if calc and calc.discount_pct is not none else discount_default }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      Tú los pones — el tipo de cambio minero de abajo se sugiere automáticamente, edítalo si quieres.
+    </div>
+    {% endif %}
+
     <label for="{{ prefix }}_buy_rate">Tipo de cambio minero (Bs/$)</label>
     <input id="{{ prefix }}_buy_rate" name="{{ prefix }}_buy_rate" type="number" step="0.0001" required
            value="{{ calc.buy_rate if calc else (buy_rate_default if buy_rate_default else '') }}">
@@ -51,9 +66,13 @@
       <span class="formula">({{ sell_price_formula }})</span>
     </div>
 
+    {% if show_sell_rate %}
     <label for="{{ prefix }}_sell_rate">TC de venta — compra oficial BCB (Bs/$)</label>
     <input id="{{ prefix }}_sell_rate" name="{{ prefix }}_sell_rate" type="number" step="0.0001"
            value="{{ calc.sell_rate if calc else (official_rate.compra if official_rate else '') }}">
+    {% elif kibo_label %}
+    <p class="muted">Pankara paga en USDT — el ingreso de venta se convierte a Bs con el TC KIBO de arriba, sin el descuento (el descuento solo aplica al comprarle al minero).</p>
+    {% endif %}
 
     <label for="{{ prefix }}_commission">Comisión (0-1)</label>
     <input id="{{ prefix }}_commission" name="{{ prefix }}_commission" type="number" step="0.0001"
@@ -68,6 +87,9 @@
       outFineWeight: '{{ prefix }}_fine_weight', outFineOz: '{{ prefix }}_fine_oz',
       outTotalUsd: '{{ prefix }}_total_usd', outTotalBs: '{{ prefix }}_total_bs'
     });
+    {% if kibo_label %}
+    bindDiscountRate('{{ prefix }}_tc_kibo', '{{ prefix }}_discount', '{{ prefix }}_buy_rate');
+    {% endif %}
   </script>
 
   {% if calc %}
@@ -149,6 +171,15 @@
      bcb_gold_price_usd, ('Prellenado con la cotización de oro del BCB (' ~ bcb_gold.quote_date ~ ').' if bcb_gold_price_usd else ''), 'cotización oro BCB en Bs/oz ÷ TC oficial compra'
 ) }}
 
+{{ round_trip_calculator('pk', pankara,
+     '¿Comprar y vender a Pankara hoy es rentable? (ida y vuelta)',
+     'Simula comprar oro hoy y venderlo a Pankara hoy mismo. No guarda nada — solo referencia.',
+     none, '', 'TC KIBO × (1 − descuento Pankara)',
+     (netdania_price.price_usd_per_oz if netdania_price else none), 'Prellenado con la cotización de Netdania.' if netdania_price else '', 'cotización de Netdania',
+     'TC KIBO (Bs/$)', 'Descuento Pankara (0-1)', default_pankara_discount,
+     false
+) }}
+
 <h2>Venta a mercado interno</h2>
 <p class="muted">Mismo oro, misma bolsa (Netdania) en ambos lados — la diferencia viene solo del TC minero de compra y de venta, que pones tú. No guarda nada — solo referencia.</p>
 <div class="card">
@@ -172,11 +203,15 @@
 
     <label for="mi_tc_compra">TC minero compra (Bs/$)</label>
     <input id="mi_tc_compra" name="mi_tc_compra" type="number" step="0.0001" required
-           value="{{ mercado_interno.tc_compra if mercado_interno else '' }}">
+           value="{{ mercado_interno.tc_compra if mercado_interno else (tc_minero_mi_avg if tc_minero_mi_avg else '') }}">
 
     <label for="mi_tc_venta">TC minero venta (Bs/$)</label>
     <input id="mi_tc_venta" name="mi_tc_venta" type="number" step="0.0001" required
-           value="{{ mercado_interno.tc_venta if mercado_interno else '' }}">
+           value="{{ mercado_interno.tc_venta if mercado_interno else (tc_minero_mi_avg if tc_minero_mi_avg else '') }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      {% if tc_minero_mi_avg %}Ambos empiezan en el promedio de los TC mineros de BCB y Pankara ({{ tc_minero_mi_avg }}) — sepáralos para armar tu propio spread.{% endif %}
+      <span class="formula">(promedio entre TC minero BCB y TC minero Pankara)</span>
+    </div>
 
     <button type="submit" style="margin-top:0.8rem">Calcular</button>
   </form>

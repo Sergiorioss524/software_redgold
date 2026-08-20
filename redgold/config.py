@@ -109,6 +109,11 @@ DEFAULT_PURITY_PCT = float(os.getenv("REDGOLD_DEFAULT_PURITY_PCT", "0.95"))
 # there now.
 DEFAULT_ROYALTY_PCT_BCB = float(os.getenv("REDGOLD_ROYALTY_BCB", "0.048"))
 
+# Starting suggestion for "Descuento Pankara" -- unlike the BCB royalty,
+# this one varies, so it's a plain editable form default, not baked into
+# any formula.
+DEFAULT_PANKARA_DISCOUNT_PCT = float(os.getenv("REDGOLD_PANKARA_DISCOUNT_PCT", "0.056"))
+
 # Default commission taken on a sale, as a 0-1 fraction.
 DEFAULT_COMMISSION_PCT = float(os.getenv("REDGOLD_DEFAULT_COMMISSION_PCT", "0.0"))
 

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}¿Qué me conviene más? — RedGold{% endblock %}
+{% block content %}
+
+<h2 style="margin-top:0">¿Qué me conviene más hoy?</h2>
+<p class="muted">Compara BCB, Pankara y mercado interno con el mismo peso, ley y bolsa — corre exactamente las mismas fórmulas que sus propias calculadoras. No guarda nada — solo referencia.</p>
+
+<div class="card">
+  <form class="stack" method="get" action="{{ url_for('comparador') }}">
+    <label for="cp_weight_g">Peso a comprar (gr)</label>
+    <input id="cp_weight_g" name="cp_weight_g" type="number" step="0.000001" required
+           value="{{ request.args.get('cp_weight_g', '') }}">
+
+    <label for="cp_purity">Ley (0-1)</label>
+    <input id="cp_purity" name="cp_purity" type="number" step="0.0001"
+           value="{{ request.args.get('cp_purity', default_purity) }}">
+    <div class="muted" id="cp_fine_weight" style="margin:0.2rem 0">Peso fino: — <span class="formula">(peso × ley)</span></div>
+    <div class="muted" id="cp_fine_oz" style="margin:0.2rem 0 0.4rem">Onza fina: — <span class="formula">(peso fino ÷ 31.1035)</span></div>
+
+    <label for="cp_bolsa">Bolsa ($/Oz)</label>
+    <input id="cp_bolsa" name="cp_bolsa" type="number" step="0.01" required
+           value="{{ request.args.get('cp_bolsa', latest_price.price_usd_per_oz if latest_price else '') }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      {% if latest_price %}Prellenado con el precio de hoy ({{ latest_price.source }}). Se usa para las tres opciones.{% endif %}
+    </div>
+
+    <h2 style="margin-top:1.5rem; font-size:1.1rem">BCB</h2>
+    <label for="cp_bcb_tc_oficial">TC de venta — compra oficial BCB (Bs/$)</label>
+    <input id="cp_bcb_tc_oficial" name="cp_bcb_tc_oficial" type="number" step="0.0001"
+           value="{{ request.args.get('cp_bcb_tc_oficial', official_rate.compra if official_rate else '') }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      <span class="formula">(tipo de cambio minero = este TC × (1 − regalías BCB 4.8%))</span>
+    </div>
+
+    <label for="cp_bcb_bolsa_venta">Bolsa de venta BCB ($/Oz)</label>
+    <input id="cp_bcb_bolsa_venta" name="cp_bcb_bolsa_venta" type="number" step="0.01"
+           value="{{ request.args.get('cp_bcb_bolsa_venta', bcb_gold_price_usd if bcb_gold_price_usd else '') }}">
+
+    <label for="cp_bcb_commission">Comisión BCB (0-1)</label>
+    <input id="cp_bcb_commission" name="cp_bcb_commission" type="number" step="0.0001"
+           value="{{ request.args.get('cp_bcb_commission', default_commission) }}">
+
+    <h2 style="margin-top:1.5rem; font-size:1.1rem">Pankara</h2>
+    <label for="cp_pk_tc_kibo">TC KIBO (Bs/$)</label>
+    <input id="cp_pk_tc_kibo" name="cp_pk_tc_kibo" type="number" step="0.0001"
+           value="{{ request.args.get('cp_pk_tc_kibo', '') }}">
+
+    <label for="cp_pk_discount">Descuento Pankara (0-1)</label>
+    <input id="cp_pk_discount" name="cp_pk_discount" type="number" step="0.0001"
+           value="{{ request.args.get('cp_pk_discount', default_pankara_discount) }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      <span class="formula">(tipo de cambio minero = TC KIBO × (1 − descuento Pankara))</span>
+    </div>
+
+    <label for="cp_pk_bolsa_venta">Bolsa de venta Pankara ($/Oz)</label>
+    <input id="cp_pk_bolsa_venta" name="cp_pk_bolsa_venta" type="number" step="0.01"
+           value="{{ request.args.get('cp_pk_bolsa_venta', netdania_price.price_usd_per_oz if netdania_price else '') }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      {% if netdania_price %}Prellenado con la cotización de Netdania.{% endif %}
+      Pankara paga en USDT — el ingreso de venta se convierte a Bs con el TC KIBO de arriba, sin el descuento.
+    </div>
+
+    <label for="cp_pk_commission">Comisión Pankara (0-1)</label>
+    <input id="cp_pk_commission" name="cp_pk_commission" type="number" step="0.0001"
+           value="{{ request.args.get('cp_pk_commission', default_commission) }}">
+
+    <h2 style="margin-top:1.5rem; font-size:1.1rem">Mercado interno</h2>
+    <label for="cp_mi_tc_compra">TC minero compra (Bs/$)</label>
+    <input id="cp_mi_tc_compra" name="cp_mi_tc_compra" type="number" step="0.0001"
+           value="{{ request.args.get('cp_mi_tc_compra', tc_minero_mi_avg if tc_minero_mi_avg else '') }}">
+
+    <label for="cp_mi_tc_venta">TC minero venta (Bs/$)</label>
+    <input id="cp_mi_tc_venta" name="cp_mi_tc_venta" type="number" step="0.0001"
+           value="{{ request.args.get('cp_mi_tc_venta', tc_minero_mi_avg if tc_minero_mi_avg else '') }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      {% if tc_minero_mi_avg %}Ambos empiezan en el promedio de los TC mineros de BCB y Pankara de arriba ({{ tc_minero_mi_avg }}) — sepáralos para armar tu propio spread.{% endif %}
+      Mercado interno no descuenta comisión ni costos operativos — así está diseñada esa calculadora.
+    </div>
+
+    <button type="submit" style="margin-top:1rem">Comparar</button>
+  </form>
+  <script>
+    bindPurchaseCalc({
+      weight: 'cp_weight_g', purity: 'cp_purity',
+      outFineWeight: 'cp_fine_weight', outFineOz: 'cp_fine_oz'
+    });
+  </script>
+</div>
+
+{% if comparison %}
+<div class="card">
+  <div class="stat-label">Conviene más</div>
+  <div class="stat {{ 'positive' if comparison.best.net_profit_bs >= 0 else 'negative' }}">{{ comparison.best.label }}
+    <span class="muted">({{ comparison.best.net_profit_bs|money }} Bs)</span>
+  </div>
+  {% if comparison.best.net_profit_bs < 0 %}
+    <p class="negative" style="font-weight:700; margin:0.5rem 0 0">Ninguna opción da ganancia hoy — esta es la que menos pierde.</p>
+  {% endif %}
+
+  <div class="table-scroll">
+  <table style="margin-top:1rem">
+    {% for r in comparison.ranking %}
+    <tr>
+      <td>{{ loop.index }}. {{ r.label }}</td>
+      <td class="{{ 'positive' if r.net_profit_bs >= 0 else 'negative' }}">
+        <strong>{{ r.net_profit_bs|money }} Bs</strong>
+        {% if r.label == 'Mercado interno' %}<span class="muted">(diferencia)</span>{% else %}<span class="muted">(utilidad neta)</span>{% endif %}
+      </td>
+      <td class="formula">{% if 'tc_minero' in r %}TC minero: {{ "%.4f"|format(r.tc_minero) }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+
+  {% set missing = [] %}
+  {% if 'bcb' not in comparison.results %}{{ missing.append('BCB') or '' }}{% endif %}
+  {% if 'pankara' not in comparison.results %}{{ missing.append('Pankara') or '' }}{% endif %}
+  {% if 'mercado_interno' not in comparison.results %}{{ missing.append('mercado interno') or '' }}{% endif %}
+  {% if missing %}
+    <p class="muted">Faltan datos de {{ missing|join(', ') }} — solo se compara lo que llenaste.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}
