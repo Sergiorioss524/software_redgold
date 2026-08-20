@@ -77,6 +77,16 @@ NETDANIA_SOURCE = SourceConfig(
 # roughly the BCB's official buying ("compra") rate.
 CUCU_TC_URL = os.getenv("REDGOLD_CUCU_TC_URL", "https://apibcb.cucu.bo/api/v1/tc/oficial")
 
+# BCB's own precious-metals quote page (gold + silver, in Bs per troy
+# ounce) -- fetched directly rather than through CUCU's gold endpoint
+# (apibcb.cucu.bo/api/v1/tc/oro), which tends to lag the real BCB figure by
+# several weeks. Used to prefill "Bolsa de venta" after converting Bs -> USD
+# with the official rate above.
+BCB_METALS_URL = os.getenv(
+    "REDGOLD_BCB_METALS_URL",
+    "https://www.bcb.gob.bo/librerias/indicadores/metales/ultimo.php",
+)
+
 # Order matters: the pipeline tries sources in this order and falls back
 # to the next one if a fetch fails or returns an implausible value.
 SOURCE_PRIORITY = [BCB_SOURCE, NETDANIA_SOURCE]
@@ -93,12 +103,10 @@ TROY_OUNCE_GRAMS = 31.1035
 # Default purity ("ley") assumed for a new purchase, as a 0-1 fraction.
 DEFAULT_PURITY_PCT = float(os.getenv("REDGOLD_DEFAULT_PURITY_PCT", "0.95"))
 
-# Default royalty ("regalias") withheld on a sale, as a 0-1 fraction.
-# Editable per sale -- these just pre-fill the form. The export cycle's
-# rate in the source workbook was ambiguous (label said 5.6%, the live
-# formula computed 0.9%); we default to the formula's rate and let the
-# actual figure be confirmed/overridden per sale.
-DEFAULT_ROYALTY_PCT_EXPORT = float(os.getenv("REDGOLD_ROYALTY_EXPORT", "0.009"))
+# Fixed royalty ("regalías") the BCB category withholds, as a 0-1 fraction.
+# Not applied as a separate deduction on a sale -- it's priced into "tipo de
+# cambio minero" instead (TC oficial x (1 - this)), so it only shows up
+# there now.
 DEFAULT_ROYALTY_PCT_BCB = float(os.getenv("REDGOLD_ROYALTY_BCB", "0.048"))
 
 # Default commission taken on a sale, as a 0-1 fraction.

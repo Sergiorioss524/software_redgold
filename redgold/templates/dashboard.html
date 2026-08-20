@@ -8,7 +8,7 @@
     <div class="stat">{{ latest_price.price_usd_per_oz|money }} USD/oz
       <span class="muted">({{ latest_price.source }})</span></div>
   {% else %}
-    <div class="stat muted">Sin cotización todavía hoy — obténla para prellenar las calculadoras</div>
+    <div class="stat muted">Sin cotización todavía hoy — obténla para prellenar la calculadora</div>
   {% endif %}
   <form method="post" action="{{ url_for('fetch_price') }}" style="margin-top:0.6rem">
     <button type="submit">Obtener precio de hoy</button>
@@ -28,8 +28,25 @@
   {% endif %}
 </div>
 
-<h2>¿Comprar y vender hoy es rentable? (ida y vuelta)</h2>
-<p class="muted">Simula comprar oro hoy y venderlo hoy mismo. No guarda nada — solo referencia.</p>
+<div class="card">
+  <div class="stat-label">Cotización oro BCB — onza troy fina</div>
+  {% if bcb_gold %}
+    <div class="stat">{{ bcb_gold.price_bs_per_oz|money }} Bs/oz
+      {% if bcb_gold_price_usd %}
+        <span class="muted">(≈ {{ bcb_gold_price_usd|money }} USD/oz)</span>
+      {% endif %}
+    </div>
+    <p class="muted" style="margin:0.3rem 0 0">
+      Cotización vigente {{ bcb_gold.quote_date }} — se usa para prellenar la bolsa de venta abajo, edítala si tienes una distinta.
+      <span class="formula">(Bs/oz ÷ TC oficial compra)</span>
+    </p>
+  {% else %}
+    <div class="stat muted">No se pudo obtener la cotización de oro del BCB — ingresa la bolsa de venta manualmente abajo</div>
+  {% endif %}
+</div>
+
+<h2>¿Comprar y vender al BCB hoy es rentable? (ida y vuelta)</h2>
+<p class="muted">Simula comprar oro hoy y venderlo al BCB hoy mismo. No guarda nada — solo referencia.</p>
 <div class="card">
   <form class="stack" method="get" action="{{ url_for('dashboard') }}">
     <label for="rt_category">Ciclo</label>
@@ -46,8 +63,8 @@
     <label for="rt_purity">Ley (0-1)</label>
     <input id="rt_purity" name="rt_purity" type="number" step="0.0001"
            value="{{ round_trip.purity_pct if round_trip else default_purity }}">
-    <div class="muted" id="rt_fine_weight" style="margin:0.2rem 0">Peso fino: —</div>
-    <div class="muted" id="rt_fine_oz" style="margin:0.2rem 0 0.4rem">Onza fina: —</div>
+    <div class="muted" id="rt_fine_weight" style="margin:0.2rem 0">Peso fino: — <span class="formula">(peso × ley)</span></div>
+    <div class="muted" id="rt_fine_oz" style="margin:0.2rem 0 0.4rem">Onza fina: — <span class="formula">(peso fino ÷ 31.1035)</span></div>
 
     <label for="rt_buy_price">Bolsa de compra ($/Oz)</label>
     <input id="rt_buy_price" name="rt_buy_price" type="number" step="0.01" required
@@ -55,25 +72,29 @@
 
     <label for="rt_buy_rate">Tipo de cambio minero (Bs/$)</label>
     <input id="rt_buy_rate" name="rt_buy_rate" type="number" step="0.0001" required
-           value="{{ round_trip.buy_rate if round_trip else '' }}">
+           value="{{ round_trip.buy_rate if round_trip else (tc_minero if tc_minero else '') }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      {% if tc_minero %}Prellenado con TC oficial − regalías BCB (4.8%).{% endif %}
+      <span class="formula">(TC oficial compra × (1 − regalías BCB))</span>
+    </div>
 
     <label for="rt_buy_rate_fisico">TC compra $ físico (Bs/$)</label>
     <input id="rt_buy_rate_fisico" name="rt_buy_rate_fisico" type="number" step="0.0001" required
            value="{{ round_trip.buy_rate_fisico if round_trip else '' }}">
-    <div class="muted" id="rt_total_bs" style="margin:0.2rem 0">Total de compra en Bolivianos: —</div>
-    <div class="muted" id="rt_total_usd" style="margin:0.2rem 0 0.4rem">Total en dólares: —</div>
+    <div class="muted" id="rt_total_bs" style="margin:0.2rem 0">Total de compra en Bolivianos: — <span class="formula">(onza fina × bolsa de compra × TC minero)</span></div>
+    <div class="muted" id="rt_total_usd" style="margin:0.2rem 0 0.4rem">Total en dólares: — <span class="formula">(total Bs ÷ TC compra físico)</span></div>
 
     <label for="rt_sell_price">Bolsa de venta ($/Oz)</label>
     <input id="rt_sell_price" name="rt_sell_price" type="number" step="0.01"
-           value="{{ round_trip.sell_price if round_trip else (latest_price.price_usd_per_oz if latest_price else '') }}">
+           value="{{ round_trip.sell_price if round_trip else (bcb_gold_price_usd if bcb_gold_price_usd else (latest_price.price_usd_per_oz if latest_price else '')) }}">
+    <div class="muted" style="margin:0.2rem 0 0.4rem">
+      {% if bcb_gold_price_usd %}Prellenado con la cotización de oro del BCB ({{ bcb_gold.quote_date }}).{% endif %}
+      <span class="formula">(cotización oro BCB en Bs/oz ÷ TC oficial compra)</span>
+    </div>
 
     <label for="rt_sell_rate">TC de venta — compra oficial BCB (Bs/$)</label>
     <input id="rt_sell_rate" name="rt_sell_rate" type="number" step="0.0001"
            value="{{ round_trip.sell_rate if round_trip else (official_rate.compra if official_rate else '') }}">
-
-    <label for="rt_royalty">Regalías (0-1)</label>
-    <input id="rt_royalty" name="rt_royalty" type="number" step="0.0001"
-           value="{{ round_trip.royalty_pct if round_trip else default_royalty[categories[0]] }}">
 
     <label for="rt_commission">Comisión (0-1)</label>
     <input id="rt_commission" name="rt_commission" type="number" step="0.0001"
@@ -92,18 +113,19 @@
 
   {% if round_trip %}
     <table style="margin-top:1rem">
-      <tr><td>Costo de compra</td><td>{{ round_trip.purchase_totals.total_bs|money }} Bs &middot; {{ round_trip.purchase_totals.total_usd|money }} USD</td></tr>
-      <tr><td>Ingreso de venta</td><td>{{ round_trip.sale_totals.total_bs|money }} Bs &middot; {{ round_trip.sale_totals.total_final_usd|money }} USD</td></tr>
-      <tr><td>Utilidad bruta (antes de costos operativos)</td><td>{{ round_trip.profit.profit_bs|money }} Bs</td></tr>
-      <tr><td>Costos operativos</td><td>{{ round_trip.profit.operating_cost_bs|money }} Bs</td></tr>
+      <tr><td>Costo de compra</td><td>{{ round_trip.purchase_totals.total_bs|money }} Bs &middot; {{ round_trip.purchase_totals.total_usd|money }} USD</td><td class="formula">Bs: oz fina × bolsa compra × TC minero · USD: oz fina × bolsa compra</td></tr>
+      <tr><td>Ingreso de venta</td><td>{{ round_trip.sale_totals.total_bs|money }} Bs &middot; {{ round_trip.sale_totals.total_final_usd|money }} USD</td><td class="formula">USD: oz fina × bolsa venta × (1 − comisión) · Bs: USD × TC venta</td></tr>
+      <tr><td>Utilidad bruta (antes de costos operativos)</td><td>{{ round_trip.profit.profit_bs|money }} Bs</td><td class="formula">Ingreso de venta (Bs) − Costo de compra (Bs)</td></tr>
+      <tr><td>Costos operativos</td><td>{{ round_trip.profit.operating_cost_bs|money }} Bs</td><td class="formula">Utilidad bruta × % costos operativos</td></tr>
       <tr>
         <td><strong>Utilidad neta</strong></td>
         <td class="{{ 'positive' if round_trip.profit.net_profit_bs >= 0 else 'negative' }}">
           <strong>{{ round_trip.profit.net_profit_bs|money }} Bs</strong>
           <span class="muted">(≈ {{ round_trip.profit.net_profit_usd_equiv|money }} USD equiv.)</span>
         </td>
+        <td class="formula">Utilidad bruta − Costos operativos · USD equiv.: ÷ TC venta</td>
       </tr>
-      <tr><td>Utilidad directa en USD</td><td>{{ round_trip.profit.profit_usd_direct|money }}</td></tr>
+      <tr><td>Utilidad directa en USD</td><td>{{ round_trip.profit.profit_usd_direct|money }}</td><td class="formula">Ingreso de venta (USD) − Costo de compra (USD)</td></tr>
     </table>
     {% if round_trip.profit.net_profit_bs >= 0 %}
       <p class="positive" style="font-weight:700">Sí, hoy conviene según estos números.</p>
@@ -112,79 +134,5 @@
     {% endif %}
   {% endif %}
 </div>
-
-<h2>¿Vender mi inventario hoy es rentable?</h2>
-<p class="muted">Usa el costo promedio real de tus compras registradas. No guarda nada — solo referencia.</p>
-<div class="card">
-  <form class="stack" method="get" action="{{ url_for('dashboard') }}">
-    <label for="inv_category">Ciclo</label>
-    <select id="inv_category" name="inv_category">
-      {% for cat in categories %}
-        <option value="{{ cat }}" {{ 'selected' if inventory_sale and inventory_sale.category == cat }}>{{ category_labels[cat] }}</option>
-      {% endfor %}
-    </select>
-
-    <label for="inv_fine_oz">Onzas finas a vender</label>
-    <input id="inv_fine_oz" name="inv_fine_oz" type="number" step="0.000001"
-           placeholder="por defecto: todo tu inventario"
-           value="{{ inventory_sale.fine_oz_sold if inventory_sale else '' }}">
-
-    <label for="inv_sell_price">Precio de venta (USD/oz)</label>
-    <input id="inv_sell_price" name="inv_sell_price" type="number" step="0.01" required
-           value="{{ inventory_sale.sell_price if inventory_sale else (latest_price.price_usd_per_oz if latest_price else '') }}">
-
-    <label for="inv_sell_rate">TC de venta — compra oficial BCB (Bs/$)</label>
-    <input id="inv_sell_rate" name="inv_sell_rate" type="number" step="0.0001" required
-           value="{{ inventory_sale.sell_rate if inventory_sale else (official_rate.compra if official_rate else '') }}">
-
-    <label for="inv_royalty">Regalías (0-1)</label>
-    <input id="inv_royalty" name="inv_royalty" type="number" step="0.0001"
-           value="{{ inventory_sale.royalty_pct if inventory_sale else default_royalty[categories[0]] }}">
-
-    <label for="inv_commission">Comisión (0-1)</label>
-    <input id="inv_commission" name="inv_commission" type="number" step="0.0001"
-           value="{{ inventory_sale.commission_pct if inventory_sale else default_commission }}">
-
-    <button type="submit" style="margin-top:0.8rem">Calcular</button>
-  </form>
-
-  {% if inventory_sale %}
-    <table style="margin-top:1rem">
-      <tr><td>Inventario disponible</td><td>{{ "%.4f"|format(inventory_sale.available_fine_oz) }} oz finas</td></tr>
-      <tr><td>Costo promedio</td><td>{{ inventory_sale.avg_cost_usd_per_oz|money }} USD/oz &middot; {{ inventory_sale.avg_cost_bs_per_oz|money }} Bs/oz</td></tr>
-      <tr><td>Ingreso de venta</td><td>{{ inventory_sale.sale_totals.total_bs|money }} Bs &middot; {{ inventory_sale.sale_totals.total_final_usd|money }} USD</td></tr>
-      <tr><td>Utilidad bruta (antes de costos operativos)</td><td>{{ inventory_sale.profit.profit_bs|money }} Bs</td></tr>
-      <tr><td>Costos operativos</td><td>{{ inventory_sale.profit.operating_cost_bs|money }} Bs</td></tr>
-      <tr>
-        <td><strong>Utilidad neta</strong></td>
-        <td class="{{ 'positive' if inventory_sale.profit.net_profit_bs >= 0 else 'negative' }}">
-          <strong>{{ inventory_sale.profit.net_profit_bs|money }} Bs</strong>
-          <span class="muted">(≈ {{ inventory_sale.profit.net_profit_usd_equiv|money }} USD equiv.)</span>
-        </td>
-      </tr>
-    </table>
-    {% if inventory_sale.oversell %}
-      <p class="negative">Ojo: pediste vender más de lo que tienes disponible ({{ "%.4f"|format(inventory_sale.available_fine_oz) }} oz finas). Este cálculo es solo hipotético.</p>
-    {% elif inventory_sale.profit.net_profit_bs >= 0 %}
-      <p class="positive" style="font-weight:700">Sí, vender tu inventario hoy conviene según estos números.</p>
-    {% else %}
-      <p class="negative" style="font-weight:700">No, vender tu inventario hoy no conviene según estos números.</p>
-    {% endif %}
-  {% endif %}
-</div>
-
-<h2>Inventario y costo promedio</h2>
-<div class="grid">
-  {% for cycle in cycles %}
-  <div class="card">
-    <strong>{{ cycle.label }}</strong>
-    <table style="margin-top:0.5rem">
-      <tr><td>Inventario</td><td>{{ "%.4f"|format(cycle.inventory_fine_oz) }} oz finas</td></tr>
-      <tr><td>Costo promedio</td><td>{{ cycle.avg_cost_usd_per_oz|money }} USD/oz &middot; {{ cycle.avg_cost_bs_per_oz|money }} Bs/oz</td></tr>
-    </table>
-  </div>
-  {% endfor %}
-</div>
-<p class="muted">Historial completo en <a href="{{ url_for('list_purchases') }}">Compras</a> y <a href="{{ url_for('list_sales') }}">Ventas</a>.</p>
 
 {% endblock %}

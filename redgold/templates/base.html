@@ -4,38 +4,93 @@
   <meta charset="utf-8">
   <title>{% block title %}RedGold{% endblock %}</title>
   <style>
-    :root { color-scheme: light; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      max-width: 960px;
-      margin: 0 auto;
-      padding: 1.5rem;
-      color: #1b1b1b;
-      background: #f7f5f0;
+    :root {
+      color-scheme: light;
+      --ink: #1b1b1b;
+      --paper: #f6f3ec;
+      --card: #fffdf9;
+      --border: #e4ddc9;
+      --gold: #8a6a1a;
+      --gold-dark: #6b5113;
+      --muted: #6f6a5f;
+      --good: #1b7a3d;
+      --bad: #b3261e;
     }
-    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
-    h2 { font-size: 1.1rem; margin-top: 2rem; }
-    nav { display: flex; gap: 1rem; margin: 1rem 0 2rem; border-bottom: 1px solid #ddd; padding-bottom: 0.75rem; }
-    nav a { color: #7a5b00; text-decoration: none; font-weight: 600; }
-    nav a:hover { text-decoration: underline; }
-    table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1.5rem; background: #fff; }
-    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
-    th { background: #efe9db; }
-    .card { background: #fff; border: 1px solid #e3ddc9; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
-    .stat { font-size: 1.3rem; font-weight: 700; }
-    .stat-label { font-size: 0.78rem; color: #666; text-transform: uppercase; letter-spacing: 0.02em; }
-    .positive { color: #1b7a3d; }
-    .negative { color: #b3261e; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 17px;
+      line-height: 1.5;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      margin: 0 0 1.5rem;
+      color: var(--gold-dark);
+    }
+    h2 { font-size: 1.4rem; font-weight: 700; margin: 2.5rem 0 0.4rem; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; background: var(--card); }
+    th, td { text-align: left; padding: 0.65rem 0.85rem; border-bottom: 1px solid #ece5d3; font-size: 1rem; }
+    th { background: #efe6cd; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--gold-dark); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 1px 3px rgba(60, 45, 10, 0.06);
+    }
+    .stat { font-size: 1.9rem; font-weight: 800; line-height: 1.2; }
+    .stat-label {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.35rem;
+    }
+    .positive { color: var(--good); }
+    .negative { color: var(--bad); }
     form.inline { display: inline; }
-    form.stack label { display: block; margin: 0.6rem 0 0.2rem; font-size: 0.85rem; font-weight: 600; }
-    form.stack input, form.stack select { width: 100%; max-width: 320px; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; }
-    button { background: #7a5b00; color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
-    button:hover { background: #5f4700; }
-    .flash { padding: 0.6rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; }
-    .flash.success { background: #e3f4e9; color: #1b7a3d; }
-    .flash.error { background: #fbe9e7; color: #b3261e; }
-    .muted { color: #777; font-size: 0.85rem; }
+    form.stack label { display: block; margin: 1.1rem 0 0.3rem; font-size: 0.95rem; font-weight: 700; }
+    form.stack input, form.stack select {
+      width: 100%;
+      max-width: 360px;
+      padding: 0.6rem 0.7rem;
+      font-size: 1rem;
+      border: 1px solid #d3c9ab;
+      border-radius: 6px;
+      background: #fff;
+    }
+    form.stack input:focus, form.stack select:focus {
+      outline: none;
+      border-color: var(--gold);
+      box-shadow: 0 0 0 3px rgba(138, 106, 26, 0.15);
+    }
+    button {
+      background: var(--gold);
+      color: #fff;
+      border: none;
+      padding: 0.7rem 1.4rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    button:hover { background: var(--gold-dark); }
+    .flash { padding: 0.85rem 1.1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 1rem; font-weight: 600; }
+    .flash.success { background: #e3f4e9; color: var(--good); }
+    .flash.error { background: #fbe9e7; color: var(--bad); }
+    .muted { color: var(--muted); font-size: 0.95rem; }
+    .formula { color: #9a917d; font-size: 0.82rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    td.formula { white-space: nowrap; }
+    .stat-label .formula, .muted .formula { margin-left: 0.5rem; }
   </style>
   <script>
     var TROY_OUNCE_GRAMS = 31.1035;
@@ -99,14 +154,7 @@
   </script>
 </head>
 <body>
-  <h1>RedGold — Ledger</h1>
-  <nav>
-    <a href="{{ url_for('dashboard') }}">Dashboard</a>
-    <a href="{{ url_for('list_purchases') }}">Compras</a>
-    <a href="{{ url_for('new_purchase') }}">+ Compra</a>
-    <a href="{{ url_for('list_sales') }}">Ventas</a>
-    <a href="{{ url_for('new_sale') }}">+ Venta</a>
-  </nav>
+  <h1>RedGold</h1>
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% for category, message in messages %}
       <div class="flash {{ category }}">{{ message }}</div>

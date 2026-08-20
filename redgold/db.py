@@ -1,6 +1,6 @@
-"""Shared SQLAlchemy Core schema + engine factory, used by both storage.py
-(price history) and ledger.py (purchases/sales). One set of table
-definitions works against either backend selected by config.DATABASE_URL:
+"""Shared SQLAlchemy Core schema + engine factory, used by storage.py
+(price history). One set of table definitions works against either
+backend selected by config.DATABASE_URL:
 
 - Postgres in production (Vercel Postgres or any DATABASE_URL), so data
   survives serverless cold starts / redeploys.
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sqlalchemy import Column, Float, Integer, MetaData, String, Table, Text, create_engine
+from sqlalchemy import Column, Float, MetaData, String, Table, Text, create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 
@@ -37,33 +37,6 @@ daily_adjustments = Table(
     Column("change_pct", Float),
     Column("adjustment_factor", Float),
     Column("computed_at", String, nullable=False),
-)
-
-purchases = Table(
-    "purchases", metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("purchase_date", String, nullable=False),
-    Column("category", String, nullable=False),
-    Column("weight_g", Float, nullable=False),
-    Column("purity_pct", Float, nullable=False),
-    Column("price_usd_per_oz", Float, nullable=False),
-    Column("exchange_rate_bs_per_usd", Float, nullable=False),
-    Column("notes", Text),
-    Column("created_at", String, nullable=False),
-)
-
-sales = Table(
-    "sales", metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("sale_date", String, nullable=False),
-    Column("category", String, nullable=False),
-    Column("fine_oz_sold", Float, nullable=False),
-    Column("sale_price_usd_per_oz", Float, nullable=False),
-    Column("royalty_pct", Float, nullable=False),
-    Column("commission_pct", Float, nullable=False),
-    Column("exchange_rate_bs_per_usd", Float, nullable=False),
-    Column("notes", Text),
-    Column("created_at", String, nullable=False),
 )
 
 

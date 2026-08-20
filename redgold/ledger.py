@@ -1,19 +1,8 @@
-"""Gold buy/sell/reinvest ledger -- the business logic that used to live as
-formulas inside BALANCE_ULTIMO.xlsx, generalized from a single snapshot
-into a running ledger (Postgres in production, SQLite in dev/tests -- see
-redgold/db.py).
-
-The workbook ran two parallel cycles:
-
-  EXPORT cycle: COMPRA DE ORO   -> VENTA EXPORT ORO -> REDGOLD profit split
-  BCB cycle:    COMPRA DE MATERIAL -> VENTA BCB     -> REDGOLD profit split
-
-Each cycle buys gold by weight/purity, then later sells fine ounces out of
-that inventory. The sheet paired exactly one purchase with one sale; here
-purchases and sales accumulate over time, so a sale's cost basis is the
-weighted-average cost (per fine ounce, tracked separately in USD and Bs --
-see `average_cost` for why those two bases don't need to agree) of every
-prior purchase in the same cycle.
+"""Gold buy/sell round-trip math -- the business logic that used to live as
+formulas inside BALANCE_ULTIMO.xlsx (COMPRA DE ORO/MATERIAL -> VENTA EXPORT
+ORO/BCB -> REDGOLD profit split), reduced to pure "buy today, sell today"
+calculators. Nothing here is persisted -- each calculation is a what-if
+against numbers the user types in.
 
 All formulas below were checked against the real cell values in the
 original workbook (see tests/test_ledger.py).
@@ -21,16 +10,8 @@ original workbook (see tests/test_ledger.py).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
-from pathlib import Path
-from typing import Optional, Union
-
-from sqlalchemy import select
 
 from redgold import config
-from redgold.db import make_engine
-from redgold.db import purchases as purchases_table
-from redgold.db import sales as sales_table
 
 CATEGORY_EXPORT = "EXPORT"
 CATEGORY_BCB = "BCB"
@@ -70,8 +51,6 @@ def compute_purchase_totals(
 @dataclass(frozen=True)
 class SaleTotals:
     total_venta_usd: float
-    regalias_usd: float
-    neto_venta_usd: float
     comision_usd: float
     total_final_usd: float
     total_bs: float
@@ -80,20 +59,18 @@ class SaleTotals:
 def compute_sale_totals(
     fine_oz_sold: float,
     sale_price_usd_per_oz: float,
-    royalty_pct: float,
     commission_pct: float,
     exchange_rate_bs_per_usd: float,
 ) -> SaleTotals:
-    """Mirrors VENTA EXPORT ORO / VENTA BCB (sheet rows 11 and 51)."""
+    """Mirrors VENTA EXPORT ORO / VENTA BCB (sheet rows 11 and 51), minus the
+    royalty deduction that used to be withheld here -- it's already priced
+    in upstream, since "tipo de cambio minero" is derived as TC oficial x
+    (1 - regalías BCB fija)."""
     total_venta_usd = fine_oz_sold * sale_price_usd_per_oz
-    regalias_usd = total_venta_usd * royalty_pct
-    neto_venta_usd = total_venta_usd - regalias_usd
-    comision_usd = neto_venta_usd * commission_pct
-    total_final_usd = neto_venta_usd - comision_usd
+    comision_usd = total_venta_usd * commission_pct
+    total_final_usd = total_venta_usd - comision_usd
     total_bs = total_final_usd * exchange_rate_bs_per_usd
-    return SaleTotals(
-        total_venta_usd, regalias_usd, neto_venta_usd, comision_usd, total_final_usd, total_bs
-    )
+    return SaleTotals(total_venta_usd, comision_usd, total_final_usd, total_bs)
 
 
 @dataclass(frozen=True)
@@ -155,234 +132,3 @@ def compute_affordable_grams(net_profit_bs: float, price_per_gram_bs: float) -> 
     if price_per_gram_bs <= 0:
         return 0.0
     return net_profit_bs / price_per_gram_bs
-
-
-# --------------------------------------------------------------------------
-# Records + storage
-# --------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class Purchase:
-    id: int
-    purchase_date: date
-    category: str
-    weight_g: float
-    purity_pct: float
-    price_usd_per_oz: float
-    exchange_rate_bs_per_usd: float
-    notes: str
-    created_at: datetime
-
-    @property
-    def totals(self) -> PurchaseTotals:
-        return compute_purchase_totals(
-            self.weight_g, self.purity_pct, self.price_usd_per_oz, self.exchange_rate_bs_per_usd
-        )
-
-
-@dataclass(frozen=True)
-class Sale:
-    id: int
-    sale_date: date
-    category: str
-    fine_oz_sold: float
-    sale_price_usd_per_oz: float
-    royalty_pct: float
-    commission_pct: float
-    exchange_rate_bs_per_usd: float
-    notes: str
-    created_at: datetime
-
-    @property
-    def totals(self) -> SaleTotals:
-        return compute_sale_totals(
-            self.fine_oz_sold, self.sale_price_usd_per_oz,
-            self.royalty_pct, self.commission_pct, self.exchange_rate_bs_per_usd,
-        )
-
-
-class InsufficientInventoryError(ValueError):
-    """Raised when a sale would sell more fine oz than the category has on hand."""
-
-
-class Ledger:
-    def __init__(self, database_url: Optional[Union[str, Path]] = None):
-        if isinstance(database_url, Path):
-            database_url = f"sqlite:///{database_url}"
-        self.engine = make_engine(database_url or config.DATABASE_URL)
-
-    # -- purchases ---------------------------------------------------------
-
-    def add_purchase(
-        self,
-        purchase_date: date,
-        category: str,
-        weight_g: float,
-        purity_pct: float,
-        price_usd_per_oz: float,
-        exchange_rate_bs_per_usd: float,
-        notes: str = "",
-    ) -> Purchase:
-        _validate_category(category)
-        created_at = datetime.now(timezone.utc)
-        with self.engine.begin() as conn:
-            result = conn.execute(
-                purchases_table.insert().values(
-                    purchase_date=purchase_date.isoformat(),
-                    category=category,
-                    weight_g=weight_g,
-                    purity_pct=purity_pct,
-                    price_usd_per_oz=price_usd_per_oz,
-                    exchange_rate_bs_per_usd=exchange_rate_bs_per_usd,
-                    notes=notes,
-                    created_at=created_at.isoformat(),
-                )
-            )
-            purchase_id = result.inserted_primary_key[0]
-        return self.get_purchase(purchase_id)
-
-    def get_purchase(self, purchase_id: int) -> Optional[Purchase]:
-        with self.engine.connect() as conn:
-            row = conn.execute(
-                select(purchases_table).where(purchases_table.c.id == purchase_id)
-            ).first()
-        return _row_to_purchase(row) if row else None
-
-    def list_purchases(self, category: Optional[str] = None) -> list[Purchase]:
-        query = select(purchases_table)
-        if category:
-            query = query.where(purchases_table.c.category == category)
-        query = query.order_by(purchases_table.c.purchase_date, purchases_table.c.id)
-        with self.engine.connect() as conn:
-            rows = conn.execute(query).fetchall()
-        return [_row_to_purchase(row) for row in rows]
-
-    # -- sales ---------------------------------------------------------
-
-    def add_sale(
-        self,
-        sale_date: date,
-        category: str,
-        fine_oz_sold: float,
-        sale_price_usd_per_oz: float,
-        royalty_pct: float,
-        commission_pct: float,
-        exchange_rate_bs_per_usd: float,
-        notes: str = "",
-        allow_oversell: bool = False,
-    ) -> Sale:
-        _validate_category(category)
-        available = self.inventory_fine_oz(category)
-        if not allow_oversell and fine_oz_sold > available + 1e-9:
-            raise InsufficientInventoryError(
-                f"{category}: cannot sell {fine_oz_sold:.4f} fine oz, only "
-                f"{available:.4f} fine oz on hand"
-            )
-        created_at = datetime.now(timezone.utc)
-        with self.engine.begin() as conn:
-            result = conn.execute(
-                sales_table.insert().values(
-                    sale_date=sale_date.isoformat(),
-                    category=category,
-                    fine_oz_sold=fine_oz_sold,
-                    sale_price_usd_per_oz=sale_price_usd_per_oz,
-                    royalty_pct=royalty_pct,
-                    commission_pct=commission_pct,
-                    exchange_rate_bs_per_usd=exchange_rate_bs_per_usd,
-                    notes=notes,
-                    created_at=created_at.isoformat(),
-                )
-            )
-            sale_id = result.inserted_primary_key[0]
-        return self.get_sale(sale_id)
-
-    def get_sale(self, sale_id: int) -> Optional[Sale]:
-        with self.engine.connect() as conn:
-            row = conn.execute(
-                select(sales_table).where(sales_table.c.id == sale_id)
-            ).first()
-        return _row_to_sale(row) if row else None
-
-    def list_sales(self, category: Optional[str] = None) -> list[Sale]:
-        query = select(sales_table)
-        if category:
-            query = query.where(sales_table.c.category == category)
-        query = query.order_by(sales_table.c.sale_date, sales_table.c.id)
-        with self.engine.connect() as conn:
-            rows = conn.execute(query).fetchall()
-        return [_row_to_sale(row) for row in rows]
-
-    # -- inventory / cost basis ---------------------------------------------
-
-    def average_cost(self, category: str, as_of: Optional[date] = None) -> tuple[float, float]:
-        """Weighted-average cost per fine oz for `category`, in (USD, Bs),
-        over every purchase up to and including `as_of` (default: all).
-
-        These two averages are computed independently -- USD cost basis
-        from each purchase's total_usd, Bs cost basis from each purchase's
-        total_bs -- because the workbook derives them from different
-        exchange rates rather than converting one into the other.
-        """
-        purchases = self.list_purchases(category)
-        if as_of is not None:
-            purchases = [p for p in purchases if p.purchase_date <= as_of]
-        total_fine_oz = sum(p.totals.fine_oz for p in purchases)
-        if total_fine_oz <= 0:
-            return 0.0, 0.0
-        total_usd = sum(p.totals.total_usd for p in purchases)
-        total_bs = sum(p.totals.total_bs for p in purchases)
-        return total_usd / total_fine_oz, total_bs / total_fine_oz
-
-    def inventory_fine_oz(self, category: str, as_of: Optional[date] = None) -> float:
-        purchases = self.list_purchases(category)
-        sales = self.list_sales(category)
-        if as_of is not None:
-            purchases = [p for p in purchases if p.purchase_date <= as_of]
-            sales = [s for s in sales if s.sale_date <= as_of]
-        bought = sum(p.totals.fine_oz for p in purchases)
-        sold = sum(s.fine_oz_sold for s in sales)
-        return bought - sold
-
-    def sale_profit(self, sale: Sale) -> CycleProfit:
-        avg_usd, avg_bs = self.average_cost(sale.category, as_of=sale.sale_date)
-        cost_basis_usd = sale.fine_oz_sold * avg_usd
-        cost_basis_bs = sale.fine_oz_sold * avg_bs
-        return compute_cycle_profit(
-            sale.totals, cost_basis_usd, cost_basis_bs, sale.exchange_rate_bs_per_usd
-        )
-
-
-def _validate_category(category: str) -> None:
-    if category not in CATEGORIES:
-        raise ValueError(f"category must be one of {CATEGORIES}, got {category!r}")
-
-
-def _row_to_purchase(row) -> Purchase:
-    m = row._mapping
-    return Purchase(
-        id=m["id"],
-        purchase_date=date.fromisoformat(m["purchase_date"]),
-        category=m["category"],
-        weight_g=m["weight_g"],
-        purity_pct=m["purity_pct"],
-        price_usd_per_oz=m["price_usd_per_oz"],
-        exchange_rate_bs_per_usd=m["exchange_rate_bs_per_usd"],
-        notes=m["notes"] or "",
-        created_at=datetime.fromisoformat(m["created_at"]),
-    )
-
-
-def _row_to_sale(row) -> Sale:
-    m = row._mapping
-    return Sale(
-        id=m["id"],
-        sale_date=date.fromisoformat(m["sale_date"]),
-        category=m["category"],
-        fine_oz_sold=m["fine_oz_sold"],
-        sale_price_usd_per_oz=m["sale_price_usd_per_oz"],
-        royalty_pct=m["royalty_pct"],
-        commission_pct=m["commission_pct"],
-        exchange_rate_bs_per_usd=m["exchange_rate_bs_per_usd"],
-        notes=m["notes"] or "",
-        created_at=datetime.fromisoformat(m["created_at"]),
-    )
