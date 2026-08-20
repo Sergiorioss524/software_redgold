@@ -74,13 +74,6 @@ def _tc_minero_bcb(tc_oficial: Optional[float]) -> Optional[float]:
     return round(tc_oficial * (1 - config.DEFAULT_ROYALTY_PCT_BCB), 4)
 
 
-def _tc_minero_pankara(tc_kibo: Optional[float], discount_pct: Optional[float]) -> Optional[float]:
-    if tc_kibo is None:
-        return None
-    discount = discount_pct if discount_pct is not None else config.DEFAULT_PANKARA_DISCOUNT_PCT
-    return round(tc_kibo * (1 - discount), 4)
-
-
 def _average(*values: Optional[float]) -> Optional[float]:
     present = [v for v in values if v is not None]
     if not present:
@@ -171,30 +164,30 @@ def _parse_round_trip_calc(args, prefix, latest_price) -> Optional[dict]:
         # below (that still uses buy_rate) -- kept only so the field survives
         # a "Calcular" round trip instead of resetting to blank.
         buy_rate_fisico = float(args.get(f"{prefix}_buy_rate_fisico", buy_rate))
-        # TC KIBO + descuento (Pankara only): the client suggests "tipo de
-        # cambio minero" as KIBO x (1 - descuento), both entered by hand
-        # since the discount isn't fixed. Neither is consumed below --
-        # buy_rate is what's actually used -- they're kept only so the
-        # fields survive a "Calcular" round trip.
+        # TC KIBO + descuento (Pankara only): "tipo de cambio minero" above
+        # is now fully manual (you type it in directly). These two apply on
+        # the SALE instead: Pankara docks its discount off what it pays you
+        # for the gold (like an extra commission), then that already-net
+        # USDT amount converts to Bs at KIBO's raw, undiscounted rate.
         tc_kibo_raw = args.get(f"{prefix}_tc_kibo")
         tc_kibo = float(tc_kibo_raw) if tc_kibo_raw else None
         discount_raw = args.get(f"{prefix}_discount")
         discount_pct = float(discount_raw) if discount_raw else None
         sell_price = float(args.get(f"{prefix}_sell_price", buy_price))
-        # No separate sell-side rate for Pankara -- they pay in USDT, which
-        # gets converted to Bs at KIBO's own rate (undiscounted -- the
-        # discount only applies when buying from the miner), not the
-        # discounted "tipo de cambio minero". Falls back to buy_rate for
-        # calculators with no KIBO rate at all (e.g. BCB, which always
-        # submits its own explicit sell_rate anyway).
-        sell_rate = float(args.get(f"{prefix}_sell_rate", tc_kibo if tc_kibo is not None else buy_rate))
+        if tc_kibo is not None:
+            discount = discount_pct if discount_pct is not None else config.DEFAULT_PANKARA_DISCOUNT_PCT
+            effective_sell_price = sell_price * (1 - discount)
+            sell_rate = float(args.get(f"{prefix}_sell_rate", tc_kibo))
+        else:
+            effective_sell_price = sell_price
+            sell_rate = float(args.get(f"{prefix}_sell_rate", buy_rate))
         commission_pct = float(args.get(f"{prefix}_commission", config.DEFAULT_COMMISSION_PCT))
     except (KeyError, ValueError):
         return None
 
     purchase_totals = compute_purchase_totals(weight_g, purity_pct, buy_price, buy_rate)
     sale_totals = compute_sale_totals(
-        purchase_totals.fine_oz, sell_price, commission_pct, sell_rate
+        purchase_totals.fine_oz, effective_sell_price, commission_pct, sell_rate
     )
     profit = compute_cycle_profit(
         sale_totals, purchase_totals.total_usd, purchase_totals.total_bs, sell_rate
@@ -274,11 +267,10 @@ def comparador():
     tc_oficial_for_avg = float(tc_oficial_raw) if tc_oficial_raw else (official_rate.compra if official_rate else None)
     tc_minero_bcb_for_avg = _tc_minero_bcb(tc_oficial_for_avg)
 
+    # Pankara buys from the miner at raw KIBO now (the discount applies
+    # selling to Pankara, not here), so that's the rate worth averaging in.
     tc_kibo_raw = request.args.get("cp_pk_tc_kibo")
-    tc_kibo_for_avg = float(tc_kibo_raw) if tc_kibo_raw else None
-    discount_raw = request.args.get("cp_pk_discount")
-    discount_for_avg = float(discount_raw) if discount_raw else None
-    tc_minero_pk_for_avg = _tc_minero_pankara(tc_kibo_for_avg, discount_for_avg)
+    tc_minero_pk_for_avg = float(tc_kibo_raw) if tc_kibo_raw else None
 
     tc_minero_mi_avg = _average(tc_minero_bcb_for_avg, tc_minero_pk_for_avg)
 
@@ -339,16 +331,19 @@ def _parse_comparador_calc(args) -> Optional[dict]:
         discount_pct = float(args.get("cp_pk_discount", config.DEFAULT_PANKARA_DISCOUNT_PCT))
         bolsa_venta = float(args["cp_pk_bolsa_venta"])
         commission_pct = float(args.get("cp_pk_commission", config.DEFAULT_COMMISSION_PCT))
-        tc_minero = _tc_minero_pankara(tc_kibo, discount_pct)
-        purchase_totals = compute_purchase_totals(weight_g, purity_pct, bolsa, tc_minero)
-        # Pankara pays in USDT, converted to Bs at KIBO's own (undiscounted)
-        # rate -- the discount only applies buying from the miner.
-        sale_totals = compute_sale_totals(purchase_totals.fine_oz, bolsa_venta, commission_pct, tc_kibo)
+        # Buy from the miner at raw KIBO. Pankara docks its discount off
+        # the sale itself (like an extra commission on the USD proceeds),
+        # then that net USDT converts to Bs at KIBO's raw rate.
+        effective_bolsa_venta = bolsa_venta * (1 - discount_pct)
+        purchase_totals = compute_purchase_totals(weight_g, purity_pct, bolsa, tc_kibo)
+        sale_totals = compute_sale_totals(
+            purchase_totals.fine_oz, effective_bolsa_venta, commission_pct, tc_kibo
+        )
         profit = compute_cycle_profit(
             sale_totals, purchase_totals.total_usd, purchase_totals.total_bs, tc_kibo
         )
         results["pankara"] = {
-            "label": "Pankara", "tc_minero": tc_minero, "net_profit_bs": profit.net_profit_bs, "profit": profit,
+            "label": "Pankara", "tc_minero": tc_kibo, "net_profit_bs": profit.net_profit_bs, "profit": profit,
         }
     except (KeyError, ValueError):
         pass

@@ -61,24 +61,25 @@ def test_round_trip_calculator_flags_a_loss(client):
     assert "No, hoy no conviene".encode() in resp.data
 
 
-def test_pankara_calculator_converts_sale_at_raw_kibo_rate(client):
+def test_pankara_calculator_converts_sale_at_discounted_kibo_rate(client):
     resp = client.get(
         "/",
         query_string={
             "pk_weight_g": "100",
             "pk_purity": "0.95",
             "pk_buy_price": "4080",
+            "pk_buy_rate": "10.5",  # manual -- unrelated to TC KIBO/descuento below
             "pk_tc_kibo": "11.0",
             "pk_discount": "0.056",
-            "pk_buy_rate": "10.384",  # 11.0 x (1 - 0.056), as the client-side JS would suggest
             "pk_sell_price": "4520",
-            # No pk_sell_rate -- Pankara pays in USDT, converted to Bs at the
-            # raw (undiscounted) TC KIBO, not the discounted buy_rate.
+            # No pk_sell_rate -- Pankara pays in USDT, converted to Bs at
+            # KIBO x (1 - descuento) = 10.384 (the discount is Pankara's,
+            # applied selling to them, not buying from the miner).
             "pk_commission": "0.0",
         },
     )
     assert resp.status_code == 200
-    assert b"20,859.04" in resp.data  # net_profit_bs
+    assert b"11,618.21" in resp.data  # net_profit_bs
     assert "Sí, hoy conviene".encode() in resp.data
     assert b"pk_sell_rate" not in resp.data
     assert b"pk_discount" in resp.data
@@ -121,15 +122,15 @@ def test_comparador_ranks_all_three_channels(client):
         },
     )
     assert resp.status_code == 200
-    assert b"8,175.36" in resp.data  # Pankara net_profit_bs -- best of the three
-    assert b"7,385.91" in resp.data  # BCB net_profit_bs
-    assert b"1,374.44" in resp.data  # mercado interno diferencia_bs -- worst of the three
+    assert b"7,385.91" in resp.data  # BCB net_profit_bs -- best of the three
+    assert b"1,374.44" in resp.data  # mercado interno diferencia_bs
+    assert b"-7,568.77" in resp.data  # Pankara net_profit_bs -- worst (bought at raw KIBO, sold at discounted KIBO)
     assert "Conviene más".encode() in resp.data
-    # Ranked best to worst: Pankara, then BCB, then mercado interno.
-    pk_pos = resp.data.find(b"1. Pankara")
-    bcb_pos = resp.data.find(b"2. BCB")
-    mi_pos = resp.data.find(b"3. Mercado interno")
-    assert 0 < pk_pos < bcb_pos < mi_pos
+    # Ranked best to worst: BCB, then mercado interno, then Pankara.
+    bcb_pos = resp.data.find(b"1. BCB")
+    mi_pos = resp.data.find(b"2. Mercado interno")
+    pk_pos = resp.data.find(b"3. Pankara")
+    assert 0 < bcb_pos < mi_pos < pk_pos
 
 
 def test_comparador_handles_partial_data(client):

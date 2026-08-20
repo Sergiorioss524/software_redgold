@@ -184,28 +184,6 @@
       });
       update();
     }
-
-    // Live-suggests an output rate as inputRate x (1 - discount), e.g.
-    // "Tipo de cambio minero" = "TC KIBO" x (1 - descuento Pankara), with
-    // the discount itself also a live input (it varies). The output field
-    // stays a normal editable input -- this only writes a suggestion into
-    // it as either source field changes.
-    function bindDiscountRate(inputId, discountId, outputId) {
-      var inputEl = document.getElementById(inputId);
-      var discountEl = document.getElementById(discountId);
-      var outputEl = document.getElementById(outputId);
-      if (!inputEl || !discountEl || !outputEl) return;
-      function update() {
-        var value = parseFloat(inputEl.value);
-        var discount = parseFloat(discountEl.value);
-        if (!isNaN(value) && !isNaN(discount)) {
-          outputEl.value = (value * (1 - discount)).toFixed(4);
-        }
-      }
-      [inputEl, discountEl].forEach(function(el) {
-        el.addEventListener('input', update);
-      });
-    }
   </script>
 </head>
 <body>
