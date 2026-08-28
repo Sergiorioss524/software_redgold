@@ -81,6 +81,62 @@ def _average(*values: Optional[float]) -> Optional[float]:
     return round(sum(present) / len(present), 4)
 
 
+def _tc_minero_mi_avg_from_args(args, prefix, official_rate) -> Optional[float]:
+    """Suggests a starting "TC minero compra/venta" for mercado interno --
+    the average of whichever mining rates are available (BCB, Pankara) in
+    this same request, read from that page's own BCB/Pankara fields
+    (falling back to the same defaults those fields prefill with)."""
+    tc_oficial_raw = args.get(f"{prefix}_bcb_tc_oficial")
+    tc_oficial = float(tc_oficial_raw) if tc_oficial_raw else (official_rate.compra if official_rate else None)
+    tc_minero_bcb = _tc_minero_bcb(tc_oficial)
+
+    # Pankara buys from the miner at raw KIBO (the discount applies
+    # selling to Pankara, not here), so that's the rate worth averaging in.
+    tc_kibo_raw = args.get(f"{prefix}_pk_tc_kibo")
+    tc_minero_pk = float(tc_kibo_raw) if tc_kibo_raw else None
+
+    return _average(tc_minero_bcb, tc_minero_pk)
+
+
+def _compute_bcb_channel(weight_g, purity_pct, bolsa, args, prefix) -> dict:
+    """Raises KeyError/ValueError if this channel's fields aren't filled in
+    -- callers catch that to mean "skip this channel"."""
+    tc_oficial = float(args[f"{prefix}_bcb_tc_oficial"])
+    bolsa_venta = float(args[f"{prefix}_bcb_bolsa_venta"])
+    commission_pct = float(args.get(f"{prefix}_bcb_commission", config.DEFAULT_COMMISSION_PCT))
+    tc_minero = _tc_minero_bcb(tc_oficial)
+    purchase_totals = compute_purchase_totals(weight_g, purity_pct, bolsa, tc_minero)
+    sale_totals = compute_sale_totals(purchase_totals.fine_oz, bolsa_venta, commission_pct, tc_oficial)
+    profit = compute_cycle_profit(
+        sale_totals, purchase_totals.total_usd, purchase_totals.total_bs, tc_oficial
+    )
+    return {"label": "BCB", "tc_minero": tc_minero, "net_profit_bs": profit.net_profit_bs, "profit": profit}
+
+
+def _compute_pankara_channel(weight_g, purity_pct, bolsa, args, prefix) -> dict:
+    tc_kibo = float(args[f"{prefix}_pk_tc_kibo"])
+    discount_pct = float(args.get(f"{prefix}_pk_discount", config.DEFAULT_PANKARA_DISCOUNT_PCT))
+    bolsa_venta = float(args[f"{prefix}_pk_bolsa_venta"])
+    commission_pct = float(args.get(f"{prefix}_pk_commission", config.DEFAULT_COMMISSION_PCT))
+    # Buy from the miner at raw KIBO. Pankara docks its discount off the
+    # sale itself (like an extra commission on the USD proceeds), then
+    # that net USDT converts to Bs at KIBO's raw rate.
+    effective_bolsa_venta = bolsa_venta * (1 - discount_pct)
+    purchase_totals = compute_purchase_totals(weight_g, purity_pct, bolsa, tc_kibo)
+    sale_totals = compute_sale_totals(purchase_totals.fine_oz, effective_bolsa_venta, commission_pct, tc_kibo)
+    profit = compute_cycle_profit(
+        sale_totals, purchase_totals.total_usd, purchase_totals.total_bs, tc_kibo
+    )
+    return {"label": "Pankara", "tc_minero": tc_kibo, "net_profit_bs": profit.net_profit_bs, "profit": profit}
+
+
+def _compute_mercado_interno_channel(weight_g, purity_pct, bolsa, args, prefix) -> dict:
+    tc_compra = float(args[f"{prefix}_mi_tc_compra"])
+    tc_venta = float(args[f"{prefix}_mi_tc_venta"])
+    spread = compute_mercado_interno_spread(weight_g, purity_pct, bolsa, tc_compra, tc_venta)
+    return {"label": "Mercado interno", "net_profit_bs": spread.diferencia_bs, "spread": spread}
+
+
 @app.context_processor
 def inject_globals():
     return {"category_labels": CATEGORY_LABELS, "categories": CATEGORIES}
@@ -99,6 +155,9 @@ def dashboard():
             break
 
     netdania_price = history.get_quote(today, "netdania")
+    # Dropped to a whole number everywhere it's used (display and math
+    # alike) -- Netdania's own decimals aren't meaningful at this scale.
+    netdania_price_usd = round(netdania_price.price_usd_per_oz) if netdania_price else None
 
     official_rate = get_official_rate()
 
@@ -127,6 +186,7 @@ def dashboard():
         "dashboard.html",
         latest_price=latest_price,
         netdania_price=netdania_price,
+        netdania_price_usd=netdania_price_usd,
         official_rate=official_rate,
         bcb_gold=bcb_gold,
         bcb_gold_price_usd=bcb_gold_price_usd,
@@ -189,8 +249,10 @@ def _parse_round_trip_calc(args, prefix, latest_price) -> Optional[dict]:
     sale_totals = compute_sale_totals(
         purchase_totals.fine_oz, effective_sell_price, commission_pct, sell_rate
     )
+    # Utilidad neta en USD is the Bs profit re-expressed via "TC compra $
+    # físico", not the sale's own exchange rate.
     profit = compute_cycle_profit(
-        sale_totals, purchase_totals.total_usd, purchase_totals.total_bs, sell_rate
+        sale_totals, purchase_totals.total_usd, purchase_totals.total_bs, buy_rate_fisico
     )
     return {
         "category": category,
@@ -250,6 +312,7 @@ def comparador():
             break
 
     netdania_price = history.get_quote(today, "netdania")
+    netdania_price_usd = round(netdania_price.price_usd_per_oz) if netdania_price else None
 
     official_rate = get_official_rate()
 
@@ -259,25 +322,13 @@ def comparador():
         bcb_gold_price_usd = round(bcb_gold.price_bs_per_oz / official_rate.compra, 2)
 
     comparison = _parse_comparador_calc(request.args)
-
-    # Same averaging idea as the dashboard's mercado interno section, but
-    # read from this page's own BCB/Pankara fields (whatever's been typed
-    # in, falling back to the same defaults those fields prefill with).
-    tc_oficial_raw = request.args.get("cp_bcb_tc_oficial")
-    tc_oficial_for_avg = float(tc_oficial_raw) if tc_oficial_raw else (official_rate.compra if official_rate else None)
-    tc_minero_bcb_for_avg = _tc_minero_bcb(tc_oficial_for_avg)
-
-    # Pankara buys from the miner at raw KIBO now (the discount applies
-    # selling to Pankara, not here), so that's the rate worth averaging in.
-    tc_kibo_raw = request.args.get("cp_pk_tc_kibo")
-    tc_minero_pk_for_avg = float(tc_kibo_raw) if tc_kibo_raw else None
-
-    tc_minero_mi_avg = _average(tc_minero_bcb_for_avg, tc_minero_pk_for_avg)
+    tc_minero_mi_avg = _tc_minero_mi_avg_from_args(request.args, "cp", official_rate)
 
     return render_template(
         "comparador.html",
         latest_price=latest_price,
         netdania_price=netdania_price,
+        netdania_price_usd=netdania_price_usd,
         official_rate=official_rate,
         bcb_gold_price_usd=bcb_gold_price_usd,
         tc_minero_mi_avg=tc_minero_mi_avg,
@@ -309,54 +360,15 @@ def _parse_comparador_calc(args) -> Optional[dict]:
         return None
 
     results = {}
-
-    try:
-        tc_oficial = float(args["cp_bcb_tc_oficial"])
-        bolsa_venta = float(args["cp_bcb_bolsa_venta"])
-        commission_pct = float(args.get("cp_bcb_commission", config.DEFAULT_COMMISSION_PCT))
-        tc_minero = _tc_minero_bcb(tc_oficial)
-        purchase_totals = compute_purchase_totals(weight_g, purity_pct, bolsa, tc_minero)
-        sale_totals = compute_sale_totals(purchase_totals.fine_oz, bolsa_venta, commission_pct, tc_oficial)
-        profit = compute_cycle_profit(
-            sale_totals, purchase_totals.total_usd, purchase_totals.total_bs, tc_oficial
-        )
-        results["bcb"] = {
-            "label": "BCB", "tc_minero": tc_minero, "net_profit_bs": profit.net_profit_bs, "profit": profit,
-        }
-    except (KeyError, ValueError):
-        pass
-
-    try:
-        tc_kibo = float(args["cp_pk_tc_kibo"])
-        discount_pct = float(args.get("cp_pk_discount", config.DEFAULT_PANKARA_DISCOUNT_PCT))
-        bolsa_venta = float(args["cp_pk_bolsa_venta"])
-        commission_pct = float(args.get("cp_pk_commission", config.DEFAULT_COMMISSION_PCT))
-        # Buy from the miner at raw KIBO. Pankara docks its discount off
-        # the sale itself (like an extra commission on the USD proceeds),
-        # then that net USDT converts to Bs at KIBO's raw rate.
-        effective_bolsa_venta = bolsa_venta * (1 - discount_pct)
-        purchase_totals = compute_purchase_totals(weight_g, purity_pct, bolsa, tc_kibo)
-        sale_totals = compute_sale_totals(
-            purchase_totals.fine_oz, effective_bolsa_venta, commission_pct, tc_kibo
-        )
-        profit = compute_cycle_profit(
-            sale_totals, purchase_totals.total_usd, purchase_totals.total_bs, tc_kibo
-        )
-        results["pankara"] = {
-            "label": "Pankara", "tc_minero": tc_kibo, "net_profit_bs": profit.net_profit_bs, "profit": profit,
-        }
-    except (KeyError, ValueError):
-        pass
-
-    try:
-        tc_compra = float(args["cp_mi_tc_compra"])
-        tc_venta = float(args["cp_mi_tc_venta"])
-        spread = compute_mercado_interno_spread(weight_g, purity_pct, bolsa, tc_compra, tc_venta)
-        results["mercado_interno"] = {
-            "label": "Mercado interno", "net_profit_bs": spread.diferencia_bs, "spread": spread,
-        }
-    except (KeyError, ValueError):
-        pass
+    for key, compute_channel in (
+        ("bcb", _compute_bcb_channel),
+        ("pankara", _compute_pankara_channel),
+        ("mercado_interno", _compute_mercado_interno_channel),
+    ):
+        try:
+            results[key] = compute_channel(weight_g, purity_pct, bolsa, args, "cp")
+        except (KeyError, ValueError):
+            pass
 
     if not results:
         return None
@@ -366,6 +378,99 @@ def _parse_comparador_calc(args) -> Optional[dict]:
         "weight_g": weight_g,
         "purity_pct": purity_pct,
         "bolsa": bolsa,
+        "results": results,
+        "ranking": ranking,
+        "best": ranking[0],
+    }
+
+
+@app.route("/proyeccion")
+def proyeccion():
+    history = get_history()
+
+    today = date.today()
+    latest_price = None
+    for source in DEFAULT_SOURCES:
+        quote = history.get_quote(today, source.name)
+        if quote is not None:
+            latest_price = quote
+            break
+
+    netdania_price = history.get_quote(today, "netdania")
+    netdania_price_usd = round(netdania_price.price_usd_per_oz) if netdania_price else None
+
+    official_rate = get_official_rate()
+
+    bcb_gold = get_bcb_gold_quote()
+    bcb_gold_price_usd = None
+    if bcb_gold is not None and official_rate is not None:
+        bcb_gold_price_usd = round(bcb_gold.price_bs_per_oz / official_rate.compra, 2)
+
+    proyeccion_calc = _parse_proyeccion_calc(request.args)
+    tc_minero_mi_avg = _tc_minero_mi_avg_from_args(request.args, "pr", official_rate)
+
+    return render_template(
+        "proyeccion.html",
+        latest_price=latest_price,
+        netdania_price=netdania_price,
+        tc_minero_mi_avg=tc_minero_mi_avg,
+        netdania_price_usd=netdania_price_usd,
+        official_rate=official_rate,
+        bcb_gold_price_usd=bcb_gold_price_usd,
+        default_purity=config.DEFAULT_PURITY_PCT,
+        default_commission=config.DEFAULT_COMMISSION_PCT,
+        default_pankara_discount=config.DEFAULT_PANKARA_DISCOUNT_PCT,
+        proyeccion=proyeccion_calc,
+        today=today,
+    )
+
+
+def _parse_proyeccion_calc(args) -> Optional[dict]:
+    """Projects each channel's single-transaction result across N repeated
+    exportaciones. Today's real gold price/TC (same sources the other
+    calculators use) stand in as a flat estimate for every repetition --
+    this is deliberately linear scaling of a known-good calculation, not a
+    price forecast, since there's no trend model backing one. Channel
+    rates are typed in by hand, exactly as on the comparator."""
+    if "pr_weight_g" not in args:
+        return None
+    try:
+        weight_g = float(args["pr_weight_g"])
+        purity_pct = float(args.get("pr_purity", config.DEFAULT_PURITY_PCT))
+        bolsa = float(args["pr_bolsa"])
+        veces = float(args["pr_veces"])
+        dias_raw = args.get("pr_dias")
+        dias = float(dias_raw) if dias_raw else None
+    except (KeyError, ValueError):
+        return None
+    if veces <= 0:
+        return None
+
+    results = {}
+    for key, compute_channel in (
+        ("bcb", _compute_bcb_channel),
+        ("pankara", _compute_pankara_channel),
+        ("mercado_interno", _compute_mercado_interno_channel),
+    ):
+        try:
+            channel = compute_channel(weight_g, purity_pct, bolsa, args, "pr")
+        except (KeyError, ValueError):
+            continue
+        total = channel["net_profit_bs"] * veces
+        channel["net_profit_bs_total"] = total
+        channel["net_profit_bs_per_dia"] = (total / dias) if dias else None
+        results[key] = channel
+
+    if not results:
+        return None
+
+    ranking = sorted(results.values(), key=lambda r: r["net_profit_bs_total"], reverse=True)
+    return {
+        "weight_g": weight_g,
+        "purity_pct": purity_pct,
+        "bolsa": bolsa,
+        "veces": veces,
+        "dias": dias,
         "results": results,
         "ranking": ranking,
         "best": ranking[0],

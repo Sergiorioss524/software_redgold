@@ -5,7 +5,7 @@
      buy_rate_default, buy_rate_note, buy_rate_formula,
      sell_price_default, sell_price_note, sell_price_formula,
      kibo_label=none, discount_label=none, discount_default=none,
-     show_sell_rate=true) %}
+     show_sell_rate=true, show_intl_total=false) %}
 <h2>{{ heading }}</h2>
 <p class="muted">{{ description }}</p>
 <div class="card">
@@ -26,6 +26,9 @@
            value="{{ calc.purity_pct if calc else default_purity }}">
     <div class="muted" id="{{ prefix }}_fine_weight" style="margin:0.2rem 0">Peso fino: — <span class="formula">(peso × ley)</span></div>
     <div class="muted" id="{{ prefix }}_fine_oz" style="margin:0.2rem 0 0.4rem">Onza fina: — <span class="formula">(peso fino ÷ 31.1035)</span></div>
+    {% if show_intl_total %}
+    <div class="muted" id="{{ prefix }}_total_usd_intl" style="margin:0.2rem 0 0.4rem">Total dólares (precio internacional Netdania): — <span class="formula">(onza fina × bolsa de compra Netdania)</span></div>
+    {% endif %}
 
     <label for="{{ prefix }}_buy_price">Bolsa de compra ($/Oz)</label>
     <input id="{{ prefix }}_buy_price" name="{{ prefix }}_buy_price" type="number" step="0.01" required
@@ -88,6 +91,7 @@
       buyPrice: '{{ prefix }}_buy_price', buyRate: '{{ prefix }}_buy_rate', rateFisico: '{{ prefix }}_buy_rate_fisico',
       outFineWeight: '{{ prefix }}_fine_weight', outFineOz: '{{ prefix }}_fine_oz',
       outTotalUsd: '{{ prefix }}_total_usd', outTotalBs: '{{ prefix }}_total_bs'
+      {% if show_intl_total %}, outTotalUsdIntl: '{{ prefix }}_total_usd_intl', netdaniaPrice: {{ netdania_price_usd if netdania_price_usd else 'null' }}{% endif %}
     });
   </script>
 
@@ -104,7 +108,7 @@
           <strong>{{ calc.profit.net_profit_bs|money }} Bs</strong>
           <span class="muted">(≈ {{ calc.profit.net_profit_usd_equiv|money }} USD equiv.)</span>
         </td>
-        <td class="formula">Utilidad bruta − Costos operativos · USD equiv.: ÷ TC venta</td>
+        <td class="formula">Utilidad bruta − Costos operativos · USD equiv.: ÷ TC compra $ físico</td>
       </tr>
       <tr><td>Utilidad directa en USD</td><td>{{ calc.profit.profit_usd_direct|money }}</td><td class="formula">Ingreso de venta (USD) − Costo de compra (USD)</td></tr>
     </table>
@@ -167,14 +171,15 @@
      '¿Comprar y vender al BCB hoy es rentable? (ida y vuelta)',
      'Simula comprar oro hoy y venderlo al BCB hoy mismo. No guarda nada — solo referencia.',
      tc_minero, 'Prellenado con TC oficial − regalías BCB (4.8%).', 'TC oficial compra × (1 − regalías BCB)',
-     bcb_gold_price_usd, ('Prellenado con la cotización de oro del BCB (' ~ bcb_gold.quote_date ~ ').' if bcb_gold_price_usd else ''), 'cotización oro BCB en Bs/oz ÷ TC oficial compra'
+     bcb_gold_price_usd, ('Prellenado con la cotización de oro del BCB (' ~ bcb_gold.quote_date ~ ').' if bcb_gold_price_usd else ''), 'cotización oro BCB en Bs/oz ÷ TC oficial compra',
+     show_intl_total=true
 ) }}
 
 {{ round_trip_calculator('pk', pankara,
      '¿Comprar y vender a Pankara hoy es rentable? (ida y vuelta)',
      'Simula comprar oro hoy y venderlo a Pankara hoy mismo. No guarda nada — solo referencia.',
      none, '', '',
-     (netdania_price.price_usd_per_oz if netdania_price else none), 'Prellenado con la cotización de Netdania.' if netdania_price else '', 'cotización de Netdania',
+     (netdania_price_usd if netdania_price_usd else none), 'Prellenado con la cotización de Netdania.' if netdania_price else '', 'cotización de Netdania',
      'TC KIBO (Bs/$)', 'Descuento Pankara (0-1)', default_pankara_discount,
      false
 ) }}
@@ -195,7 +200,7 @@
 
     <label for="mi_price">Bolsa ($/Oz)</label>
     <input id="mi_price" name="mi_price" type="number" step="0.01" required
-           value="{{ mercado_interno.price if mercado_interno else (netdania_price.price_usd_per_oz if netdania_price else '') }}">
+           value="{{ mercado_interno.price if mercado_interno else (netdania_price_usd if netdania_price_usd else '') }}">
     <div class="muted" style="margin:0.2rem 0 0.4rem">
       {% if netdania_price %}Prellenado con la cotización de Netdania.{% endif %}
     </div>

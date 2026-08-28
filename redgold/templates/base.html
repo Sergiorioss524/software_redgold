@@ -130,11 +130,13 @@
     function formatNumber(n, decimals) {
       return n.toLocaleString('en-US', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
     }
-    // ids: {weight, purity, buyPrice, buyRate, rateFisico, outFineWeight, outFineOz, outTotalUsd, outTotalBs}
+    // ids: {weight, purity, buyPrice, buyRate, rateFisico, outFineWeight, outFineOz, outTotalUsd, outTotalBs, outTotalUsdIntl, netdaniaPrice}
     // buyPrice/buyRate/outTotalUsd/outTotalBs are optional -- omit them to
     // only track peso fino / onza fina. rateFisico is optional: when given,
     // "total en dólares" = total en Bolivianos / TC compra físico instead of
-    // onza fina x bolsa de compra.
+    // onza fina x bolsa de compra. outTotalUsdIntl + netdaniaPrice are
+    // optional together: onza fina x netdaniaPrice, independent of whatever
+    // is typed into "Bolsa de compra".
     function bindPurchaseCalc(ids) {
       var weightEl = document.getElementById(ids.weight);
       var purityEl = document.getElementById(ids.purity);
@@ -145,6 +147,7 @@
       var outFineOzEl = ids.outFineOz ? document.getElementById(ids.outFineOz) : null;
       var outTotalUsdEl = ids.outTotalUsd ? document.getElementById(ids.outTotalUsd) : null;
       var outTotalBsEl = ids.outTotalBs ? document.getElementById(ids.outTotalBs) : null;
+      var outTotalUsdIntlEl = ids.outTotalUsdIntl ? document.getElementById(ids.outTotalUsdIntl) : null;
       if (!weightEl || !purityEl || !outFineWeightEl) return;
 
       function update() {
@@ -177,6 +180,11 @@
             outTotalUsdEl.textContent = 'Total en dólares: ' + (totalUsd === null ? '—' : '$' + formatNumber(totalUsd, 2));
           }
         }
+
+        if (outTotalUsdIntlEl) {
+          var totalUsdIntl = (fineOz === null || !ids.netdaniaPrice) ? null : fineOz * ids.netdaniaPrice;
+          outTotalUsdIntlEl.textContent = 'Total dólares (precio internacional Netdania): ' + (totalUsdIntl === null ? '—' : '$' + formatNumber(totalUsdIntl, 2));
+        }
       }
 
       [weightEl, purityEl, buyPriceEl, buyRateEl, rateFisicoEl].forEach(function(el) {
@@ -193,6 +201,7 @@
       <a href="{{ url_for('dashboard') }}">Dashboard</a>
       <a href="{{ url_for('gold_chart') }}" target="_blank" rel="noopener">Gráfico oro/USD en vivo ↗</a>
       <a href="{{ url_for('comparador') }}" target="_blank" rel="noopener">¿Qué me conviene? ↗</a>
+      <a href="{{ url_for('proyeccion') }}" target="_blank" rel="noopener">Proyección ↗</a>
     </nav>
   </div>
   {% with messages = get_flashed_messages(with_categories=true) %}

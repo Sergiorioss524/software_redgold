@@ -149,3 +149,51 @@ def test_comparador_handles_partial_data(client):
     assert "Faltan datos".encode() in resp.data
     assert "Pankara".encode() in resp.data
     assert "mercado interno".encode() in resp.data
+
+
+def test_proyeccion_scales_all_three_channels_by_veces(client):
+    resp = client.get(
+        "/proyeccion",
+        query_string={
+            "pr_weight_g": "100",
+            "pr_purity": "0.95",
+            "pr_bolsa": "4500",
+            "pr_veces": "10",
+            "pr_dias": "30",
+            "pr_bcb_tc_oficial": "11.52",
+            "pr_bcb_bolsa_venta": "4510",
+            "pr_bcb_commission": "0.0",
+            "pr_pk_tc_kibo": "11.0",
+            "pr_pk_discount": "0.056",
+            "pr_pk_bolsa_venta": "4510",
+            "pr_pk_commission": "0.0",
+            "pr_mi_tc_compra": "10.9",
+            "pr_mi_tc_venta": "11.0",
+        },
+    )
+    assert resp.status_code == 200
+    assert b"7,385.91" in resp.data  # BCB net_profit_bs per export
+    assert b"73,859.12" in resp.data  # BCB total = per export x 10
+    assert b"2,461.97" in resp.data  # BCB total / 30 dias
+    assert b"13,744.43" in resp.data  # mercado interno diferencia x 10
+    assert b"-75,687.65" in resp.data  # Pankara total (worst)
+    assert "Mejor proyección tras 10 exportaciones".encode() in resp.data
+
+
+def test_proyeccion_handles_partial_data(client):
+    resp = client.get(
+        "/proyeccion",
+        query_string={
+            "pr_weight_g": "100",
+            "pr_purity": "0.95",
+            "pr_bolsa": "4500",
+            "pr_veces": "5",
+            "pr_bcb_tc_oficial": "11.52",
+            "pr_bcb_bolsa_venta": "4510",
+            "pr_bcb_commission": "0.0",
+        },
+    )
+    assert resp.status_code == 200
+    assert "Faltan datos".encode() in resp.data
+    assert "Pankara".encode() in resp.data
+    assert "mercado interno".encode() in resp.data

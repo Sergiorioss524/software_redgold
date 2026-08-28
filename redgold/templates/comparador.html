@@ -54,7 +54,7 @@
 
     <label for="cp_pk_bolsa_venta">Bolsa de venta Pankara ($/Oz)</label>
     <input id="cp_pk_bolsa_venta" name="cp_pk_bolsa_venta" type="number" step="0.01"
-           value="{{ request.args.get('cp_pk_bolsa_venta', netdania_price.price_usd_per_oz if netdania_price else '') }}">
+           value="{{ request.args.get('cp_pk_bolsa_venta', netdania_price_usd if netdania_price_usd else '') }}">
     <div class="muted" style="margin:0.2rem 0 0.4rem">
       {% if netdania_price %}Prellenado con la cotización de Netdania.{% endif %}
       Pankara paga en USDT — el descuento se descuenta de esta bolsa (como una comisión extra de Pankara), y ese resultado se convierte a Bs con TC KIBO puro.
