@@ -16,6 +16,21 @@
   <strong>compra de USDT/BOB en Binance P2P</strong>. No una derivada de la otra.
 </p>
 <p class="muted">
+  Las filas son inventadas, pero los niveles y la volatilidad no: el BCB dejó su tipo fijo de
+  Bs 6,96 (vigente desde 2011) el 29-jun-2026 por una "flotación administrada" — subió a Bs
+  9,73, luego 9,96, 11,54, 11,58, ~12,26 en sus siguientes lecturas.
+  {% if official_rate %}
+    Este historial arranca ahí y converge al TC oficial <strong>en vivo de hoy, {{ official_rate.compra|money(2) }} Bs/$</strong>, leído en este mismo momento desde la misma fuente que usa el dashboard.
+  {% else %}
+    Este historial arranca ahí y converge a un TC oficial de referencia (~11.97 Bs/$) — no se pudo leer el valor en vivo en este momento.
+  {% endif %}
+  TC paralelo solía cotizar 30-40% por encima del tipo fijo (llegó a una brecha de Bs 19,25 en
+  mayo de 2025); con la flotación ese premio se achicó — el 15-ago-2026 Binance P2P cerró en
+  Bs 11,43, por <em>debajo</em> del oficial de ese día (Bs 11,58). El precio del oro también se
+  rebasó cerca de $4,450/oz, el nivel real guardado en <span class="formula">gold_prices</span>,
+  en vez del ~$2,650 que tenía este prototipo antes.
+</p>
+<p class="muted">
   Todavía no hay compras ni ventas reales cargadas en el ledger (0 filas) — esto corre sobre
   datos inventados, solo para comprobar si el método funciona antes de invertir en cargarlo
   con operaciones reales.
@@ -33,13 +48,13 @@
   <div class="stat-label">Ajuste del modelo</div>
   <div class="stat">R² = {{ "%.3f"|format(result.r_squared) }}</div>
   <p class="muted" style="margin-top:0.6rem">
-    El R² es alto y, con las dos tasas ya desacopladas, TC oficial y TC paralelo casi no se
-    correlacionan entre sí (como debe ser — son dos mercados distintos). Pero fijate que el
-    coeficiente de <strong>TC oficial</strong> sigue sin ser confiable, por otra razón: en este
-    historial ficticio TC oficial casi no varía día a día (el peso del BCB se mueve muy poco,
-    como en la realidad), y una regresión no puede estimar con confianza el efecto de algo que
-    casi no cambia. Con historial real, si TC oficial sigue tan plano, probablemente convenga
-    sacarlo del modelo en vez de dejar que absorba ruido.
+    Con la nueva flotación, TC oficial y TC paralelo suben juntos la mayor parte del tiempo
+    (correlación ≈0.95 en este historial — comparten el mismo contexto macro) — y aun así la
+    regresión le asigna a <strong>TC oficial</strong> un peso prácticamente nulo y a
+    <strong>TC paralelo</strong> uno cercano a 1, que es justo la regla con la que se generaron
+    los datos. Buena señal: con suficiente variación propia en TC paralelo día a día, el modelo
+    logra separar las dos tasas aunque se muevan muy pegadas — no bastaba con que estuvieran
+    correlacionadas para confundirlas.
   </p>
 </div>
 

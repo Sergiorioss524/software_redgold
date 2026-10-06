@@ -536,7 +536,10 @@ def _build_regression_chart(rows, predictions):
 
 @app.route("/regresion-exportacion")
 def regresion_exportacion():
-    rows = generate_synthetic_history()
+    official_rate = get_official_rate()
+    rows = generate_synthetic_history(
+        oficial_anchor=official_rate.compra if official_rate else 11.97
+    )
     result = fit_regression(rows)
     chart = _build_regression_chart(rows, result.predictions)
 
@@ -552,6 +555,7 @@ def regresion_exportacion():
         chart=chart,
         table_rows=table_rows,
         n_rows=len(rows),
+        official_rate=official_rate,
     )
 
 

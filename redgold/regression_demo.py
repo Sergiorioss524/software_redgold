@@ -20,13 +20,24 @@ small gold-price effect, and deliberately gives TC oficial no real effect
 -- so the regression recovering that (near-zero weight on TC oficial) is
 itself a useful check that the method isn't just fitting noise.
 
-TC oficial and TC paralelo are two genuinely independent series, not one
-derived from the other: TC oficial is what BCB publishes (pegged, barely
-moves); TC paralelo is Binance P2P's USDT/BOB buy rate -- its own market,
-driven by dollar scarcity, not by BCB's peg. Modeling TC paralelo as a
+TC oficial and TC paralelo are two independent series, not one derived
+from the other: TC oficial is what BCB publishes; TC paralelo is Binance
+P2P's USDT/BOB buy rate -- its own market. Modeling TC paralelo as a
 fixed multiple of TC oficial (an earlier version of this file did) makes
 them collinear by construction and the regression can't tell them apart
 -- that's a modeling bug, not a finding about the real channel.
+
+Both series are anchored to the real 2026 regime, not placeholder numbers:
+BCB abandoned its Bs 6.96/$ peg (fixed since 2011) on 2026-06-29 for a
+"managed float" -- published rates since: ~9.73 (29-jun), 9.96 (07-jul),
+11.54 (28-jul), 11.58 (15-ago), ~12.26 (23-sep); this app's own live fetch
+(`fetch_official_rate`, reused below) reads ~11.97 as of this writing.
+TC paralelo used to run 30-40% above the old fixed peg (it hit a historic
+Bs 19.25 gap in May 2025), but the float has largely closed that premium:
+on 15-ago-2026 Binance P2P's USDT/BOB closed at Bs 11.43 -- BELOW that
+day's oficial of Bs 11.58. Gold itself is anchored near $4,450/oz, this
+app's own stored Netdania quotes (see `data/redgold.db`, `gold_prices`)
+rather than the ~$2,650 that was current when this module was written.
 """
 from __future__ import annotations
 
@@ -54,47 +65,68 @@ class RegressionRow:
     tc_minero: float
 
 
-def generate_synthetic_history(n_days: int = 84, seed: int = 7) -> list[RegressionRow]:
+def generate_synthetic_history(
+    n_days: int = 84,
+    seed: int = 7,
+    oficial_anchor: float = 11.97,
+) -> list[RegressionRow]:
     """One fabricated export deal per business day, most recent `n_days`
-    ending today. See module docstring for the generating rule.
+    ending today. See module docstring for the real anchors behind these
+    numbers -- the *rows* are fabricated, but the levels and volatility
+    they're drawn around are not.
 
-    TC oficial and TC paralelo are generated as two independent processes
-    (BCB's peg vs. Binance P2P's own USDT/BOB market), not one derived from
-    the other -- otherwise they'd be collinear by construction."""
+    `oficial_anchor` is today's real TC oficial -- pass in a fresh live
+    read (see `webapp.get_official_rate`) so the window's endpoint tracks
+    reality instead of going stale; it falls back to this function's
+    default (BCB's ~11.97 read as of this writing) when a live fetch isn't
+    available.
+
+    Both FX series share a common "regime" trend (both are BOB/USD rates
+    living through the same 2026 float) but get their own independent
+    noise on top -- correlated, like the real ones, but not one computed
+    from the other, which would make them collinear by construction."""
     rng = np.random.default_rng(seed)
-    rows: list[RegressionRow] = []
-    d = date.today() - timedelta(days=int(n_days * 1.5) + 10)
-
-    # Binance P2P (compra USDT/BOB) as its own random walk with a mild
-    # upward drift -- dollar-scarcity dynamics, unrelated to BCB's peg.
-    paralelo_level = 8.6
-
-    while len(rows) < n_days:
+    days = []
+    d = date.today()
+    while len(days) < n_days:
         if d.weekday() < 5:
-            t = len(rows) / n_days
-            tc_oficial = 6.96 + rng.normal(0, 0.01)
+            days.append(d)
+        d -= timedelta(days=1)
+    days.reverse()
 
-            paralelo_level += rng.normal(0.006, 0.07)
-            tc_paralelo = paralelo_level
+    regime_start = 9.75  # TC oficial just after the float began, 29-jun-2026
+    regime_end = oficial_anchor
+    # Paralelo ran well above oficial before the float; by 15-ago-2026 it
+    # had closed to (and briefly dipped below) oficial -- model that spread
+    # shrinking from a modest premium to roughly flat over the window.
+    spread_start, spread_end = 0.35, -0.05
 
-            precio_oro = 2650 + 90 * np.sin(t * 6) + rng.normal(0, 18)
-            comision_refineria = max(0.004, 0.014 + rng.normal(0, 0.0025))
-            tc_minero = (
-                tc_paralelo * (1 - comision_refineria)
-                - 0.00015 * (precio_oro - 2650)
-                + rng.normal(0, 0.02)
+    rows: list[RegressionRow] = []
+    for i, day in enumerate(days):
+        frac = i / (len(days) - 1) if len(days) > 1 else 1.0
+        regime_trend = regime_start + (regime_end - regime_start) * frac
+        spread = spread_start + (spread_end - spread_start) * frac
+
+        tc_oficial = regime_trend + rng.normal(0, 0.07)
+        tc_paralelo = regime_trend + spread + rng.normal(0, 0.18)
+
+        precio_oro = 4450 + 120 * np.sin(frac * 6) + rng.normal(0, 55)
+        comision_refineria = max(0.004, 0.014 + rng.normal(0, 0.0025))
+        tc_minero = (
+            tc_paralelo * (1 - comision_refineria)
+            - 0.00015 * (precio_oro - 4450)
+            + rng.normal(0, 0.03)
+        )
+        rows.append(
+            RegressionRow(
+                day=day,
+                tc_oficial=float(tc_oficial),
+                tc_paralelo=float(tc_paralelo),
+                precio_oro=float(precio_oro),
+                comision_refineria=float(comision_refineria),
+                tc_minero=float(tc_minero),
             )
-            rows.append(
-                RegressionRow(
-                    day=d,
-                    tc_oficial=float(tc_oficial),
-                    tc_paralelo=float(tc_paralelo),
-                    precio_oro=float(precio_oro),
-                    comision_refineria=float(comision_refineria),
-                    tc_minero=float(tc_minero),
-                )
-            )
-        d += timedelta(days=1)
+        )
     return rows
 
 
