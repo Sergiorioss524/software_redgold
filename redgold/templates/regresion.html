@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Regresión TC export (demo) — RedGold{% endblock %}
+{% block content %}
+
+<h2 style="margin-top:0">¿Se puede calcular el TC minero por regresión? (demo)</h2>
+<p class="muted">
+  Prototipo con <strong>{{ n_rows }} días de historial ficticio</strong> para el canal de
+  <strong>exportación directa a una refinería externa</strong> — no Pankara, no BCB. Ahí no
+  hay una regalía fija conocida como en BCB, así que el TC minero hoy se escribe a mano. La
+  idea: ver si una regresión que toma en cuenta varias variables de mercado a la vez puede
+  sugerir ese valor en vez de dejarlo en blanco.
+</p>
+<p class="muted">
+  Todavía no hay compras ni ventas reales cargadas en el ledger (0 filas) — esto corre sobre
+  datos inventados, solo para comprobar si el método funciona antes de invertir en cargarlo
+  con operaciones reales.
+</p>
+
+<div class="card">
+  <div class="stat-label">Fórmula ajustada</div>
+  <p class="formula" style="font-size:0.95rem; line-height:1.8; margin:0.3rem 0 1rem">
+    TC minero ≈ {{ "%.3f"|format(result.intercept) }}
+    {% for f, label in feature_labels.items() %}
+      {{ '+' if result.coefficients[f] >= 0 else '−' }} {{ "%.4f"|format(result.coefficients[f]|abs) }} × {{ label }}
+    {% endfor %}
+  </p>
+  <div class="stat-label">Ajuste del modelo</div>
+  <div class="stat">R² = {{ "%.3f"|format(result.r_squared) }}</div>
+  <p class="muted" style="margin-top:0.6rem">
+    El R² es alto, pero fijate que <strong>TC oficial</strong> y <strong>TC paralelo</strong>
+    se mueven casi siempre juntos (el paralelo se construye sobre el oficial) — la regresión no
+    logra repartir con confianza cuánto pesa cada uno por separado, aunque la suma de ambos sí
+    prediga bien. Es colinealidad, un problema clásico: con datos ficticios donde dos variables
+    van pegadas, los coeficientes individuales no son del todo confiables, aunque el ajuste
+    general sí lo sea. Con historial real esto se puede resolver dejando una sola variable de
+    tipo de cambio en el modelo.
+  </p>
+</div>
+
+<div class="card">
+  <div class="stat-label">TC minero: observado vs. predicho por la regresión</div>
+  <div style="display:flex; gap:1.5rem; margin:0.5rem 0 0.75rem; font-size:0.85rem">
+    <span><span style="display:inline-block; width:14px; height:3px; background:#6b5113; vertical-align:middle; margin-right:0.4rem"></span>Observado (ficticio)</span>
+    <span><span style="display:inline-block; width:14px; height:3px; background:#1b7a3d; vertical-align:middle; margin-right:0.4rem; border-top:3px dashed #1b7a3d; background:none"></span>Predicho por la regresión</span>
+  </div>
+  <figure style="margin:0">
+    <svg viewBox="0 0 {{ chart.width }} {{ chart.height }}" style="width:100%; height:auto; display:block" role="img"
+         aria-label="Gráfico de líneas: tipo de cambio minero observado contra el predicho por la regresión, día a día, sobre el historial ficticio de exportación directa. Las dos líneas se mantienen cercanas a lo largo de todo el período.">
+      {% for t in chart.y_ticks %}
+      <line x1="{{ chart.margin_left }}" y1="{{ t.y }}" x2="{{ chart.plot_right }}" y2="{{ t.y }}" stroke="#e4ddc9" stroke-width="1"></line>
+      <text x="{{ chart.margin_left - 8 }}" y="{{ t.y + 4 }}" font-size="11" fill="#6f6a5f" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">{{ t.label }}</text>
+      {% endfor %}
+      {% for t in chart.x_ticks %}
+      <text x="{{ t.x }}" y="{{ chart.plot_bottom + 18 }}" font-size="11" fill="#6f6a5f" text-anchor="middle">{{ t.label }}</text>
+      {% endfor %}
+      <path d="{{ chart.path_actual }}" fill="none" stroke="#6b5113" stroke-width="2"></path>
+      <path d="{{ chart.path_predicted }}" fill="none" stroke="#1b7a3d" stroke-width="2" stroke-dasharray="5,4"></path>
+    </svg>
+    <figcaption class="muted" style="margin-top:0.6rem; font-size:0.85rem">
+      Bs/$ por día de deal, sobre {{ n_rows }} días ficticios. Las dos líneas se mantienen
+      pegadas durante todo el período, consistente con el R² de arriba.
+    </figcaption>
+  </figure>
+</div>
+
+<div class="card">
+  <div class="stat-label">Primeros {{ table_rows|length }} días del historial ficticio</div>
+  <div class="table-scroll">
+  <table>
+    <tr>
+      <th>Día</th>
+      <th>TC oficial</th>
+      <th>TC paralelo</th>
+      <th>Precio oro</th>
+      <th>Comisión refinería</th>
+      <th>TC minero observado</th>
+      <th>TC minero predicho</th>
+      <th>Diferencia</th>
+    </tr>
+    {% for item in table_rows %}
+    <tr>
+      <td>{{ item.row.day.strftime('%d-%b-%Y') }}</td>
+      <td>{{ item.row.tc_oficial|money(4) }}</td>
+      <td>{{ item.row.tc_paralelo|money(4) }}</td>
+      <td>${{ item.row.precio_oro|money(2) }}</td>
+      <td>{{ "%.2f"|format(item.row.comision_refineria * 100) }}%</td>
+      <td>{{ item.row.tc_minero|money(4) }}</td>
+      <td>{{ item.predicted|money(4) }}</td>
+      <td class="{{ 'positive' if item.diff >= 0 else 'negative' }}">{{ item.diff|money(4) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div>
+
+<p class="muted">
+  Siguiente paso real: una vez que haya compras/ventas de exportación directa registradas en
+  el ledger (hoy hay 0), recalcular esto contra esos datos reales en vez de los ficticios de
+  arriba — recién ahí la fórmula sirve para sugerir un TC minero de partida.
+</p>
+
+{% endblock %}

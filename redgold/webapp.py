@@ -24,6 +24,7 @@ from redgold.ledger import (
     compute_sale_totals,
 )
 from redgold.pipeline import DEFAULT_SOURCES, run_daily_update
+from redgold.regression_demo import FEATURE_LABELS, fit_regression, generate_synthetic_history
 from redgold.sources.base import GoldPriceUnavailableError
 from redgold.sources.exchange_rate import ExchangeRateUnavailableError, fetch_official_rate
 from redgold.sources.metals import MetalPriceUnavailableError, fetch_gold_quote
@@ -480,6 +481,78 @@ def _parse_proyeccion_calc(args) -> Optional[dict]:
 @app.route("/grafico")
 def gold_chart():
     return render_template("chart.html")
+
+
+def _build_regression_chart(rows, predictions):
+    """Lays out an actual-vs-predicted line chart as ready-to-render SVG
+    coordinates -- no charting library, same approach as the rest of the
+    dashboard's hand-rolled templates."""
+    width, height = 760, 320
+    margin_left, margin_right = 56, 16
+    margin_top, margin_bottom = 16, 34
+    plot_w = width - margin_left - margin_right
+    plot_h = height - margin_top - margin_bottom
+
+    actual = [r.tc_minero for r in rows]
+    all_values = actual + predictions
+    y_min, y_max = min(all_values), max(all_values)
+    pad = (y_max - y_min) * 0.08 or 0.05
+    y_min, y_max = y_min - pad, y_max + pad
+
+    n = len(rows)
+
+    def x_px(i):
+        return margin_left + (plot_w * i / (n - 1) if n > 1 else 0)
+
+    def y_px(v):
+        return margin_top + plot_h * (1 - (v - y_min) / (y_max - y_min))
+
+    def path_for(values):
+        return "M" + " L".join(f"{x_px(i):.1f},{y_px(v):.1f}" for i, v in enumerate(values))
+
+    n_ticks = 5
+    y_ticks = [
+        {"y": round(y_px(y_min + (y_max - y_min) * k / n_ticks), 1), "label": f"{y_min + (y_max - y_min) * k / n_ticks:.2f}"}
+        for k in range(n_ticks + 1)
+    ]
+
+    step = max(1, n // 6)
+    x_ticks = [{"x": round(x_px(i), 1), "label": rows[i].day.strftime("%d-%b")} for i in range(0, n, step)]
+    if (n - 1) % step:
+        x_ticks.append({"x": round(x_px(n - 1), 1), "label": rows[-1].day.strftime("%d-%b")})
+
+    return {
+        "width": width,
+        "height": height,
+        "margin_left": margin_left,
+        "plot_right": width - margin_right,
+        "plot_bottom": height - margin_bottom,
+        "path_actual": path_for(actual),
+        "path_predicted": path_for(predictions),
+        "y_ticks": y_ticks,
+        "x_ticks": x_ticks,
+    }
+
+
+@app.route("/regresion-exportacion")
+def regresion_exportacion():
+    rows = generate_synthetic_history()
+    result = fit_regression(rows)
+    chart = _build_regression_chart(rows, result.predictions)
+
+    table_rows = [
+        {"row": r, "predicted": pred, "diff": r.tc_minero - pred}
+        for r, pred in list(zip(rows, result.predictions))[:10]
+    ]
+
+    return render_template(
+        "regresion.html",
+        feature_labels=FEATURE_LABELS,
+        result=result,
+        chart=chart,
+        table_rows=table_rows,
+        n_rows=len(rows),
+    )
 
 
 @app.route("/price/fetch", methods=["POST"])
