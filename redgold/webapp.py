@@ -24,7 +24,7 @@ from redgold.ledger import (
     compute_sale_totals,
 )
 from redgold.pipeline import DEFAULT_SOURCES, run_daily_update
-from redgold.regression_demo import FEATURE_LABELS, fit_regression, generate_synthetic_history
+from redgold.regression_demo import build_fitted_latex, fit_regression, generate_synthetic_history
 from redgold.sources.base import GoldPriceUnavailableError
 from redgold.sources.exchange_rate import ExchangeRateUnavailableError, fetch_official_rate
 from redgold.sources.metals import MetalPriceUnavailableError, fetch_gold_quote
@@ -547,8 +547,8 @@ def regresion_exportacion():
 
     return render_template(
         "regresion.html",
-        feature_labels=FEATURE_LABELS,
         result=result,
+        fitted_latex=build_fitted_latex(result),
         chart=chart,
         table_rows=table_rows,
         n_rows=len(rows),

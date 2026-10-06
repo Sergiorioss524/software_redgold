@@ -11,29 +11,35 @@
   sugerir ese valor en vez de dejarlo en blanco.
 </p>
 <p class="muted">
+  TC oficial y TC paralelo son dos series independientes, con fuentes distintas: TC oficial es
+  lo que publica el <strong>Banco Central de Bolivia</strong>; TC paralelo es la tasa de
+  <strong>compra de USDT/BOB en Binance P2P</strong>. No una derivada de la otra.
+</p>
+<p class="muted">
   Todavía no hay compras ni ventas reales cargadas en el ledger (0 filas) — esto corre sobre
   datos inventados, solo para comprobar si el método funciona antes de invertir en cargarlo
   con operaciones reales.
 </p>
 
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+
 <div class="card">
   <div class="stat-label">Fórmula ajustada</div>
-  <p class="formula" style="font-size:0.95rem; line-height:1.8; margin:0.3rem 0 1rem">
-    TC minero ≈ {{ "%.3f"|format(result.intercept) }}
-    {% for f, label in feature_labels.items() %}
-      {{ '+' if result.coefficients[f] >= 0 else '−' }} {{ "%.4f"|format(result.coefficients[f]|abs) }} × {{ label }}
-    {% endfor %}
-  </p>
+  <div id="fitted-formula" style="margin:0.5rem 0 0.75rem; overflow-x:auto"></div>
+  <p class="formula" style="font-size:0.85rem; word-break:break-all; margin:0 0 1rem">{{ fitted_latex }}</p>
+  <script>katex.render({{ fitted_latex|tojson }}, document.getElementById('fitted-formula'), {throwOnError: false, displayMode: true});</script>
+
   <div class="stat-label">Ajuste del modelo</div>
   <div class="stat">R² = {{ "%.3f"|format(result.r_squared) }}</div>
   <p class="muted" style="margin-top:0.6rem">
-    El R² es alto, pero fijate que <strong>TC oficial</strong> y <strong>TC paralelo</strong>
-    se mueven casi siempre juntos (el paralelo se construye sobre el oficial) — la regresión no
-    logra repartir con confianza cuánto pesa cada uno por separado, aunque la suma de ambos sí
-    prediga bien. Es colinealidad, un problema clásico: con datos ficticios donde dos variables
-    van pegadas, los coeficientes individuales no son del todo confiables, aunque el ajuste
-    general sí lo sea. Con historial real esto se puede resolver dejando una sola variable de
-    tipo de cambio en el modelo.
+    El R² es alto y, con las dos tasas ya desacopladas, TC oficial y TC paralelo casi no se
+    correlacionan entre sí (como debe ser — son dos mercados distintos). Pero fijate que el
+    coeficiente de <strong>TC oficial</strong> sigue sin ser confiable, por otra razón: en este
+    historial ficticio TC oficial casi no varía día a día (el peso del BCB se mueve muy poco,
+    como en la realidad), y una regresión no puede estimar con confianza el efecto de algo que
+    casi no cambia. Con historial real, si TC oficial sigue tan plano, probablemente convenga
+    sacarlo del modelo en vez de dejar que absorba ruido.
   </p>
 </div>
 
@@ -69,8 +75,8 @@
   <table>
     <tr>
       <th>Día</th>
-      <th>TC oficial</th>
-      <th>TC paralelo</th>
+      <th>TC oficial (BCB)</th>
+      <th>TC paralelo (P2P, compra USDT/BOB)</th>
       <th>Precio oro</th>
       <th>Comisión refinería</th>
       <th>TC minero observado</th>
